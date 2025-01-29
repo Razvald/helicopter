@@ -1,6 +1,7 @@
 import json
 from time import time
 from datetime import datetime, date, timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import cv2
@@ -126,30 +127,22 @@ class VIO():
                    )
         
     def calc_pos(self, next_pt):
-        poses = []
-        for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
-                                                                next_pt['out'],
-                                                                )
-
+        def process_prev_pt(prev_pt):
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
             if len(match_prev) <= NUM_MATCH_THR:
-                continue
-            
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+                return None
+            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
             height = np.mean([prev_pt['height'], next_pt['height']])
-            ############################################
-            ##### умножать
             metric_shift = pix_shift / FOCAL * height
-            #########################################
-            local_pos = prev_pt['local_posm'] + metric_shift
-            poses.append(local_pos)
+            return prev_pt['local_posm'] + metric_shift
 
-        if len(poses):
-            return np.mean(poses, axis=0)
-        else:
-            return None
+        with ThreadPoolExecutor() as executor:
+            poses = list(executor.map(process_prev_pt, self.trace))
+
+        return np.mean([pose for pose in poses if pose is not None], axis=0) if poses else None
+
                 
     def match_points_hom(self, out0, out1):
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
