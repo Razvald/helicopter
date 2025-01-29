@@ -1,0 +1,1 @@
+mavproxy python3 /home/orangepi/miniconda3/envs/baseto/bin/mavproxy.py --baudrate=57600 --master=/dev/ttyS3 --streamrate=20 --out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14551
