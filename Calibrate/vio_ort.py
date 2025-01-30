@@ -88,7 +88,11 @@ class VIO():
                  int(CENTER[1] + pitch * 2.5)
         )
         
-        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+        # Использование OpenCV быстрее, так как оно более оптимизировано для обработки изображений
+        (h, w) = frame.shape[:2]
+        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1.0)
+        rotated = cv2.warpAffine(frame, M, (w, h))
+
         rotated = np.asarray(rotated)
         timings['rotation'] = time() - start_time
         start_time = time()
@@ -128,8 +132,10 @@ class VIO():
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
         if len(tn)>=VEL_FIT_DEPTH:
             # enough data to calculate velocity
-            vn = np.polyfit(ts, tn, 1)[0]
-            ve = np.polyfit(ts, te, 1)[0]
+            # Для малых объёмов данных это может быть заменено (уже)
+            vn = (tn[-1] - tn[0]) / (ts[-1] - ts[0])
+            ve = (te[-1] - te[0]) / (ts[-1] - ts[0])
+
             vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
             # set zero velocity if data insufficient  
@@ -167,28 +173,20 @@ class VIO():
     def calc_pos(self, next_pt):
         # Сокращаем self.trace до последних TRACE_DEPTH элементов
         recent_trace = self.trace[-TRACE_DEPTH:]
-
-        # Предварительные вычисления
         next_height = next_pt['height']
-
-        # Подготовка для кеширования результатов
         precomputed_results = []
 
         # Вспомогательная функция для обработки элемента trace
         def process_prev_pt(prev_pt):
-            # Используем match_points_hom для поиска гомографии и точек
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
 
-            # Пропускаем, если недостаточно совпадений
             if len(match_prev) <= NUM_MATCH_THR:
                 return None
 
-            # Кешируем результат HoM и используем дальше
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
 
-            # Рассчитываем метрики
             height = np.mean([prev_pt['height'], next_height])
             metric_shift = pix_shift / FOCAL * height
             return prev_pt['local_posm'] + metric_shift
@@ -197,7 +195,6 @@ class VIO():
         with ThreadPoolExecutor() as executor:
             precomputed_results = list(executor.map(process_prev_pt, recent_trace))
 
-        # Сборка валидных результатов
         poses = [res for res in precomputed_results if res is not None]
 
         # Возвращаем среднее значение или None
