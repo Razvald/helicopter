@@ -1,6 +1,7 @@
 import json
 from time import time
 from datetime import datetime, date, timedelta
+
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -60,12 +61,27 @@ class VIO():
     #TODO: преобразовании изображения (маска, вращение, коррекция),
     #TODO: при detect_and_compute, а также calc_pos
     def add_trace_pt(self, frame, msg):
+        # начало замера времени
+        total_start_time = time()
+
+        # хранение времени отдельных этапов
+        timings = {}
+
+        start_time = time()
         angles= fetch_angles(msg)
+        timings['fetch_angles'] = time() - start_time
+        start_time = time()
+
         height = fetch_height(msg)
+        timings['fetch_height'] = time() - start_time
+        start_time = time()
+
         timestamp = time()
 
         frame = preprocess_frame(frame, MASK)
-        
+        timings['preprocess_frame'] = time() - start_time
+        start_time = time()
+
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180 
         
         dpp = (int(CENTER[0] + roll * 2.5),
@@ -74,16 +90,22 @@ class VIO():
         
         rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
+        timings['rotation'] = time() - start_time
+        start_time = time()
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        timings['fisheye_correction'] = time() - start_time
+        start_time = time()
 
         trace_pt = dict(crop=crop,
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
                         )
-        
+        timings['detect_and_compute'] = time() - start_time
+        start_time = time()
+
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
 
@@ -96,7 +118,9 @@ class VIO():
                 trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
             else:
                 trace_pt['local_posm'] = local_pos_metric
-        
+        timings['local_position_calculation'] = time() - start_time
+        start_time = time()
+
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
@@ -109,12 +133,18 @@ class VIO():
         else:
             # set zero velocity if data insufficient  
             vn, ve, vd = 0, 0, 0
-            
+        timings['velocity_calculation'] = time() - start_time
+        start_time = time()
+
         lat = self.lat0 + tn[-1] / METERS_DEG
         lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude 
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        
+        timings['GPS_calculation'] = time() - start_time
+
+        # конец замера времени
+        elapsed_time = time() - total_start_time
+
         return dict(timestamp=float(ts[-1]),
                     to_north=float(tn[-1]),
                     to_east=float(te[-1]),
@@ -125,44 +155,72 @@ class VIO():
                     vele=float(ve),
                     veld=float(vd),
                     GPS_week=int(GPS_week),
-                    GPS_ms=int(GPS_ms)
+                    GPS_ms=int(GPS_ms),
+                    # время замера
+                    elapsed_time=elapsed_time,
+                    timings=timings
                     )
 
     #TODO: проверить на возможность модернизации
     def calc_pos(self, next_pt):
+        timings = {}  # Словарь для хранения времени каждого этапа
+        start_time = time()
+
         def process_prev_pt(prev_pt):
+            local_start_time = time()
+
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+            timings['match_points_hom'] = timings.get('match_points_hom', 0) + (time() - local_start_time)
+            local_start_time = time()
+
             if len(match_prev) <= NUM_MATCH_THR:
                 return None
+            
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+            timings['perspective_transform'] = timings.get('perspective_transform', 0) + (time() - local_start_time)
+            local_start_time = time()
+            
             height = np.mean([prev_pt['height'], next_pt['height']])
             metric_shift = pix_shift / FOCAL * height
+            timings['metric_calculation'] = timings.get('metric_calculation', 0) + (time() - local_start_time)
+
             return prev_pt['local_posm'] + metric_shift
 
         with ThreadPoolExecutor() as executor:
             poses = list(executor.map(process_prev_pt, self.trace))
 
+        timings['thread_execution'] = time() - start_time
+        self.last_calc_pos_timings = timings  # Сохраняем последние замеры времени для анализа
+
         return np.mean([pose for pose in poses if pose is not None], axis=0) if poses else None
 
     #TODO: проверить на затраты времени и добавить многопоточность/мультипроцессинг
     def match_points_hom(self, out0, out1):
+        timings = {}  # Для сбора времени внутри функции
+        start_time = time()
+
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
+        timings['descriptor_matching'] = time() - start_time
+        start_time = time()
+
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
-
-        good_prev = []
-        good_next = []
-        if len(mkpts_0)>=NUM_MATCH_THR:
+        if len(mkpts_0) >= NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-
+            timings['find_homography'] = time() - start_time
+            start_time = time()
+            
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
             good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-        
+            timings['filter_points'] = time() - start_time
+            
+            self.last_match_points_timings = timings  # Сохраняем последние замеры времени
             return good_prev, good_next, HoM
 
         else:
+            self.last_match_points_timings = timings
             return [], [], np.eye(3)
         
     def detect_and_compute(self, frame):
