@@ -118,6 +118,7 @@ class VIO():
                 trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
             else:
                 trace_pt['local_posm'] = local_pos_metric
+        
         timings['local_position_calculation'] = time() - start_time
         start_time = time()
 
@@ -161,40 +162,46 @@ class VIO():
                     timings=timings
                     )
 
+
     #TODO: проверить на возможность модернизации
     def calc_pos(self, next_pt):
-        timings = {}  # Словарь для хранения времени каждого этапа
-        start_time = time()
+        # Сокращаем self.trace до последних TRACE_DEPTH элементов
+        recent_trace = self.trace[-TRACE_DEPTH:]
 
+        # Предварительные вычисления
+        next_height = next_pt['height']
+
+        # Подготовка для кеширования результатов
+        precomputed_results = []
+
+        # Вспомогательная функция для обработки элемента trace
         def process_prev_pt(prev_pt):
-            local_start_time = time()
-
+            # Используем match_points_hom для поиска гомографии и точек
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
-            timings['match_points_hom'] = timings.get('match_points_hom', 0) + (time() - local_start_time)
-            local_start_time = time()
 
+            # Пропускаем, если недостаточно совпадений
             if len(match_prev) <= NUM_MATCH_THR:
                 return None
-            
+
+            # Кешируем результат HoM и используем дальше
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-            timings['perspective_transform'] = timings.get('perspective_transform', 0) + (time() - local_start_time)
-            local_start_time = time()
-            
-            height = np.mean([prev_pt['height'], next_pt['height']])
-            metric_shift = pix_shift / FOCAL * height
-            timings['metric_calculation'] = timings.get('metric_calculation', 0) + (time() - local_start_time)
 
+            # Рассчитываем метрики
+            height = np.mean([prev_pt['height'], next_height])
+            metric_shift = pix_shift / FOCAL * height
             return prev_pt['local_posm'] + metric_shift
 
+        # Параллельная обработка recent_trace
         with ThreadPoolExecutor() as executor:
-            poses = list(executor.map(process_prev_pt, self.trace))
+            precomputed_results = list(executor.map(process_prev_pt, recent_trace))
 
-        timings['thread_execution'] = time() - start_time
-        self.last_calc_pos_timings = timings  # Сохраняем последние замеры времени для анализа
+        # Сборка валидных результатов
+        poses = [res for res in precomputed_results if res is not None]
 
-        return np.mean([pose for pose in poses if pose is not None], axis=0) if poses else None
+        # Возвращаем среднее значение или None
+        return np.mean(poses, axis=0) if poses else None
 
     #TODO: проверить на затраты времени и добавить многопоточность/мультипроцессинг
     def match_points_hom(self, out0, out1):
