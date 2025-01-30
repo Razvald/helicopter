@@ -56,8 +56,10 @@ class VIO():
         self.prev = None
         self.HoM = None
 
+    #TODO: проверить на узкие места производительности при
+    #TODO: преобразовании изображения (маска, вращение, коррекция),
+    #TODO: при detect_and_compute, а также calc_pos
     def add_trace_pt(self, frame, msg):
-        
         angles= fetch_angles(msg)
         height = fetch_height(msg)
         timestamp = time()
@@ -80,7 +82,7 @@ class VIO():
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
-                       )
+                        )
         
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
@@ -124,8 +126,9 @@ class VIO():
                     veld=float(vd),
                     GPS_week=int(GPS_week),
                     GPS_ms=int(GPS_ms)
-                   )
-        
+                    )
+
+    #TODO: проверить на возможность модернизации
     def calc_pos(self, next_pt):
         def process_prev_pt(prev_pt):
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
@@ -143,7 +146,7 @@ class VIO():
 
         return np.mean([pose for pose in poses if pose is not None], axis=0) if poses else None
 
-                
+    #TODO: проверить на затраты времени и добавить многопоточность/мультипроцессинг
     def match_points_hom(self, out0, out1):
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
@@ -195,7 +198,7 @@ class VIO():
                 5.0, # GPS horizontal accuracy in m
                 3.0, # GPS vertical accuracy in m
                 10, # Number of satellites visible,
-               ]
+                ]
 
 def calc_GPS_week_time():
     today = date.today()
