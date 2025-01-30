@@ -1,7 +1,6 @@
 import json
 from time import time
 from datetime import datetime, date, timedelta
-
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -9,7 +8,6 @@ import cv2
 from PIL import Image
 
 from modules.xfeat_ort import XFeat
-
 from pymavlink import mavutil
 
 
@@ -200,7 +198,6 @@ class VIO():
         # Возвращаем среднее значение или None
         return np.mean(poses, axis=0) if poses else None
 
-    #TODO: проверить на затраты времени и добавить многопоточность/мультипроцессинг
     def match_points_hom(self, out0, out1):
         timings = {}  # Для сбора времени внутри функции
         start_time = time()
