@@ -2,6 +2,7 @@ import json
 from time import time
 from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 import numpy as np
 import cv2
 from modules.xfeat_ort import XFeat
@@ -138,8 +139,8 @@ class VIO():
         """Рассчитывает локальную позицию."""
         recent_trace = self.trace[-TRACE_DEPTH:]
 
-        def process_prev_pt(prev_pt):
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+        def process_prev_pt(prev_pt, next_pt, match_points_hom):
+            match_prev, match_next, HoM = match_points_hom(prev_pt['out'], next_pt['out'])
             if len(match_prev) <= NUM_MATCH_THR:
                 return None
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
@@ -147,8 +148,8 @@ class VIO():
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
             return prev_pt['local_posm'] + pix_shift / FOCAL * next_pt['height']
 
-        with ThreadPoolExecutor() as executor:
-            poses = list(executor.map(process_prev_pt, recent_trace))
+        with Pool() as pool:
+            poses = pool.map(process_prev_pt, recent_trace)
         return np.mean([p for p in poses if p is not None], axis=0) if poses else None
 
     def match_points_hom(self, out0, out1):
