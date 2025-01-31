@@ -4,7 +4,6 @@ from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import cv2
-from PIL import Image
 from modules.xfeat_ort import XFeat
 from pymavlink import mavutil
 
@@ -18,13 +17,14 @@ FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | \
         mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | \
         mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
-# Загрузка параметров камеры
+# Вспомогательные функции
 def load_camera_params(filename='fisheye_2024-09-18.json'):
+    """Загружает параметры камеры из файла JSON."""
     with open(filename) as f:
         return json.load(f)
 
-# Преобразование и создание маски
 def create_mask(camparam):
+    """Создает маску на основе параметров камеры."""
     for shape in camparam['shapes']:
         if shape['label'] == 'mask':
             mask = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
@@ -33,35 +33,13 @@ def create_mask(camparam):
             return mask
     return None
 
-# Инициализация основных параметров
+# Инициализация камеры
 camparam = load_camera_params()
 MASK = create_mask(camparam)
-
-CENTER = [camparam['ppx'], camparam['ppy']]
-CENTER[0] -= 6  # TODO: использовать исправления в файле
-CENTER[1] += 26  # TODO: использовать исправления в файле
+CENTER = [camparam['ppx'] - 6, camparam['ppy'] + 26]
 FOCAL = camparam['focal']
 RAD = camparam['radius']
 CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
-
-# Считает количество None в структуре данных
-def count_none_recursive(arr):
-    count = 0
-    for item in arr:
-        if isinstance(item, (list, np.ndarray)):
-            count += count_none_recursive(item)
-        elif item is None:
-            count += 1
-    return count
-
-def count_none_recursive(arr):
-    count = 0
-    for item in arr:
-        if isinstance(item, list) or isinstance(item, np.ndarray):
-            count += count_none_recursive(item)
-        elif item is None:
-            count += 1
-    return count
 
 class VIO():
     def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
@@ -74,42 +52,33 @@ class VIO():
         self.HoM = None
 
     def add_trace_pt(self, frame, msg):
-        # Начало замера времени
+        """Добавляет точку трассировки и возвращает результаты."""
         total_start_time = time()
         timings = {}
 
-        # Фазы обработки
-        start_time = time()
+        # Этапы обработки
         angles = fetch_angles(msg)
-        timings['fetch_angles'] = time() - start_time
+        timings['fetch_angles'] = time() - total_start_time
 
-        start_time = time()
         height = fetch_height(msg)
-        timings['fetch_height'] = time() - start_time
+        timings['fetch_height'] = time() - total_start_time
 
-        start_time = time()
         frame = preprocess_frame(frame, MASK)
-        timings['preprocess_frame'] = time() - start_time
+        timings['preprocess_frame'] = time() - total_start_time
 
-        start_time = time()
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
         dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
         (h, w) = frame.shape[:2]
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1.0)
         rotated = cv2.warpAffine(frame, M, (w, h))
-        rotated = np.asarray(rotated)
-        timings['rotation'] = time() - start_time
+        timings['rotation'] = time() - total_start_time
 
-        # Сеточная коррекция
-        start_time = time()
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        timings['fisheye_correction'] = time() - start_time
+        timings['fisheye_correction'] = time() - total_start_time
 
-        # Обработка точки трассировки
-        start_time = time()
         trace_pt = dict(crop=crop, out=self.detect_and_compute(crop), angles=angles, height=height)
-        timings['detect_and_compute'] = time() - start_time
+        timings['detect_and_compute'] = time() - total_start_time
 
         # Обновление позиции
         if len(self.trace) > TRACE_DEPTH:
@@ -119,204 +88,106 @@ class VIO():
             trace_pt['local_posm'] = np.asarray([0, 0])
         else:
             local_pos_metric = self.calc_pos(trace_pt)
-            if local_pos_metric is None:
-                trace_pt['local_posm'] = self.trace[-1]['local_posm']
-            else:
-                trace_pt['local_posm'] = local_pos_metric
-        timings['local_position_calculation'] = time() - start_time
+            trace_pt['local_posm'] = local_pos_metric if local_pos_metric is not None else self.trace[-1]['local_posm']
 
         self.trace.append(trace_pt)
         self.track.append(np.hstack((time(), trace_pt['local_posm'], height)))
+        timings['local_position_calculation'] = time() - total_start_time
 
-        # Вычисление скорости
+        # Скорость
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
         if len(tn) >= VEL_FIT_DEPTH:
             vn = (tn[-1] - tn[0]) / (ts[-1] - ts[0])
             ve = (te[-1] - te[0]) / (ts[-1] - ts[0])
-            vd = 0  # Это может быть заменено на вычисление, если требуется
+            vd = 0
         else:
             vn, ve, vd = 0, 0, 0
-        timings['velocity_calculation'] = time() - start_time
+        timings['velocity_calculation'] = time() - total_start_time
 
-        # Расчет GPS-координат
         lat = self.lat0 + tn[-1] / METERS_DEG
         lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi)
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        timings['GPS_calculation'] = time() - start_time
+        timings['GPS_calculation'] = time() - total_start_time
 
-        # Возвращаем результат
         elapsed_time = time() - total_start_time
-        return dict(timestamp=float(ts[-1]),
-                    to_north=float(tn[-1]),
-                    to_east=float(te[-1]),
+        return dict(timestamp=float(ts[-1]), 
+                    to_north=float(tn[-1]), 
+                    to_east=float(te[-1]), 
                     lat=float(lat),
-                    lon=float(lon),
-                    alt=float(alt),
-                    veln=float(vn),
-                    vele=float(ve),
+                    lon=float(lon), 
+                    alt=float(alt), 
+                    veln=float(vn), 
+                    vele=float(ve), 
                     veld=float(vd),
-                    GPS_week=int(GPS_week),
-                    GPS_ms=int(GPS_ms),
-                    elapsed_time=elapsed_time,
+                    GPS_week=int(GPS_week), 
+                    GPS_ms=int(GPS_ms), 
+                    elapsed_time=elapsed_time, 
                     timings=timings)
 
     def calc_pos(self, next_pt):
-        # Сокращаем self.trace до последних TRACE_DEPTH элементов
+        """Рассчитывает локальную позицию."""
         recent_trace = self.trace[-TRACE_DEPTH:]
-        next_height = next_pt['height']
-        precomputed_results = []
 
-        # Вспомогательная функция для обработки элемента trace
         def process_prev_pt(prev_pt):
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
-
             if len(match_prev) <= NUM_MATCH_THR:
                 return None
-
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+            return prev_pt['local_posm'] + pix_shift / FOCAL * next_pt['height']
 
-            height = np.mean([prev_pt['height'], next_height])
-            metric_shift = pix_shift / FOCAL * height
-            return prev_pt['local_posm'] + metric_shift
-
-        # Параллельная обработка recent_trace
         with ThreadPoolExecutor() as executor:
-            precomputed_results = list(executor.map(process_prev_pt, recent_trace))
-
-        poses = [res for res in precomputed_results if res is not None]
-
-        # Возвращаем среднее значение или None
-        return np.mean(poses, axis=0) if poses else None
+            poses = list(executor.map(process_prev_pt, recent_trace))
+        return np.mean([p for p in poses if p is not None], axis=0) if poses else None
 
     def match_points_hom(self, out0, out1):
-        timings = {}  # Для сбора времени внутри функции
-        start_time = time()
-
-        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
-        timings['descriptor_matching'] = time() - start_time
-        start_time = time()
-
+        """Находит гомографию между двумя наборами точек."""
+        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
         if len(mkpts_0) >= NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-            timings['find_homography'] = time() - start_time
-            start_time = time()
-            
-            mask = mask.ravel()
-            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
-            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-            timings['filter_points'] = time() - start_time
-            
-            self.last_match_points_timings = timings  # Сохраняем последние замеры времени
-            return good_prev, good_next, HoM
+            return mkpts_0[mask.ravel() == 1], mkpts_1[mask.ravel() == 1], HoM
+        return [], [], np.eye(3)
 
-        else:
-            self.last_match_points_timings = timings
-            return [], [], np.eye(3)
-        
     def detect_and_compute(self, frame):
+        """Распознает ключевые точки и их дескрипторы."""
         img = self._matcher.parse_input(frame)
-        out = self._matcher.detectAndCompute(img)[0]
-        return out
+        return self._matcher.detectAndCompute(img)[0]
 
-    def vio2pixhawk(self, msg):
-
-        viom = msg['VIO']
-        
-        return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
-                0, # GPS sensor id in th, e case of multiple GPS
-                FLAGS, # flags to ignore 8, 16, 32 etc
-                # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-                
-                viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
-                viom['GPS_week'], # GPS week number
-                3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
-                int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
-                int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
-                viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
-                1.0, # GPS HDOP horizontal dilution of precision in m
-                1.0, # GPS VDOP vertical dilution of precision in m
-                viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
-                viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
-                viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
-                0.6, # GPS speed accuracy in m/s
-                5.0, # GPS horizontal accuracy in m
-                3.0, # GPS vertical accuracy in m
-                10, # Number of satellites visible,
-                ]
-
+# Вспомогательные функции
 def calc_GPS_week_time():
+    """Вычисляет номер недели GPS и время в миллисекундах с начала недели."""
     today = date.today()
     now = datetime.now()
     epoch = date(1980, 1, 6)
-    
     epochMonday = epoch - timedelta(epoch.weekday())
     todayMonday = today - timedelta(today.weekday())
     GPS_week = int((todayMonday - epochMonday).days / 7)
-    GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute*60000 + now.second*1000 + int(now.microsecond/1000)
+    GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute * 60000 + now.second * 1000 + int(now.microsecond / 1000)
     return GPS_week, GPS_ms
 
 def fetch_angles(msg):
+    """Получает углы из сообщения."""
     angles = msg['ATTITUDE']
-    #angles = msg['EXT_IMU']
     angles['yaw'] = -angles['yaw']
     return angles
 
 def fetch_height(msg):
+    """Получает высоту из сообщения."""
     return max(0, msg['AHRS2']['altitude'])
-        
-def extract_neighborhood(image, keypoint, size):
-    x, y = keypoint
-    half_size = size // 2
-    
-    x_start = x - half_size
-    x_end = x + half_size
-    y_start = y - half_size
-    y_end = y + half_size
-    # Reject keypoints too close to boundaries
-    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
-        return None
-        
-    nbh = image[y_start:y_end, x_start:x_end]
-    # Reject keypoints  with mask pixels
-    if np.any(nbh==0):
-        return None
-    else:
-        return nbh
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
-    # Create a grid for the rectilinear image
+    """Приводит изображение из фишай-проекции к прямолинейной."""
     rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
     r = np.sqrt(rx**2 + ry**2) / focal
-
-    angle_n = np.arctan(r)
-    if fproj == 'equidistant':
-        angle_n = angle_n
-    elif fproj == 'orthographic':
-        angle_n = np.sin(angle_n)    
-    elif fproj == 'stereographic':
-        angle_n = 2*np.tan(angle_n/2)
-    elif fproj == 'equisolid':
-        angle_n = 2*np.sin(angle_n/2)
-    
+    angle_n = np.arctan(r) if fproj == 'equidistant' else None
     angle_t = np.arctan2(ry, rx)
-    
     pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
     pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-    
-    map_x = pt_x.astype(np.float32)
-    map_y = pt_y.astype(np.float32)
-    
-    return map_x, map_y
+    return pt_x.astype(np.float32), pt_y.astype(np.float32)
 
 def preprocess_frame(frame, mask):
-    frame = np.where(mask, frame, 0)
-    return frame
-
+    """Применяет маску к изображению."""
+    return np.where(mask, frame, 0)
