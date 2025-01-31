@@ -57,30 +57,37 @@ class VIO():
         timings = {}
 
         # Этапы обработки
+        time_local = time()
         angles = fetch_angles(msg)
-        timings['fetch_angles'] = time() - total_start_time
+        timings['fetch_angles'] = time() - time_local
 
+        time_local = time()
         height = fetch_height(msg)
-        timings['fetch_height'] = time() - total_start_time
+        timings['fetch_height'] = time() - time_local
 
+        time_local = time()
         frame = preprocess_frame(frame, MASK)
-        timings['preprocess_frame'] = time() - total_start_time
+        timings['preprocess_frame'] = time() - time_local
 
+        time_local = time()
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
         dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
         (h, w) = frame.shape[:2]
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1.0)
         rotated = cv2.warpAffine(frame, M, (w, h))
-        timings['rotation'] = time() - total_start_time
+        timings['rotation'] = time() - time_local
 
+        time_local = time()
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        timings['fisheye_correction'] = time() - total_start_time
+        timings['fisheye_correction'] = time() - time_local
 
+        time_local = time()
         trace_pt = dict(crop=crop, out=self.detect_and_compute(crop), angles=angles, height=height)
-        timings['detect_and_compute'] = time() - total_start_time
+        timings['detect_and_compute'] = time() - time_local
 
         # Обновление позиции
+        time_local = time()
         if len(self.trace) > TRACE_DEPTH:
             self.trace = self.trace[1:]
 
@@ -92,9 +99,10 @@ class VIO():
 
         self.trace.append(trace_pt)
         self.track.append(np.hstack((time(), trace_pt['local_posm'], height)))
-        timings['local_position_calculation'] = time() - total_start_time
+        timings['local_position_calculation'] = time() - time_local
 
         # Скорость
+        time_local = time()
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
         if len(tn) >= VEL_FIT_DEPTH:
             vn = (tn[-1] - tn[0]) / (ts[-1] - ts[0])
@@ -102,13 +110,14 @@ class VIO():
             vd = 0
         else:
             vn, ve, vd = 0, 0, 0
-        timings['velocity_calculation'] = time() - total_start_time
+        timings['velocity_calculation'] = time() - time_local
 
+        time_local = time()
         lat = self.lat0 + tn[-1] / METERS_DEG
         lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi)
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        timings['GPS_calculation'] = time() - total_start_time
+        timings['GPS_calculation'] = time() - time_local
 
         elapsed_time = time() - total_start_time
         return dict(timestamp=float(ts[-1]), 
