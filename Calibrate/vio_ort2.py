@@ -2,6 +2,7 @@ import json
 from time import time
 from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 from multiprocessing import Pool
 import numpy as np
 import cv2
@@ -136,21 +137,31 @@ class VIO():
                     timings=timings)
 
     def calc_pos(self, next_pt):
-        """Рассчитывает локальную позицию."""
-        recent_trace = self.trace[-TRACE_DEPTH:]
+        poses = []
+        recent_trace = self.trace[-TRACE_DEPTH:]  # Возьмем только последние TRACE_DEPTH элементов
+        with Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.starmap(self.process_prev_pt, [(prev_pt, next_pt) for prev_pt in recent_trace])
 
-        def process_prev_pt(prev_pt, next_pt, match_points_hom):
-            match_prev, match_next, HoM = match_points_hom(prev_pt['out'], next_pt['out'])
-            if len(match_prev) <= NUM_MATCH_THR:
-                return None
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
-            pix_shift = CROP_CENTER - center_proj
-            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-            return prev_pt['local_posm'] + pix_shift / FOCAL * next_pt['height']
+        # Отбираем валидные результаты и возвращаем среднее
+        poses = [result for result in results if result is not None]
 
-        with Pool() as pool:
-            poses = pool.map(process_prev_pt, recent_trace)
-        return np.mean([p for p in poses if p is not None], axis=0) if poses else None
+        if len(poses):
+            return np.mean(poses, axis=0)
+        else:
+            return None
+        
+    def process_prev_pt(self, prev_pt, next_pt):
+        match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+        
+        if len(match_prev) <= NUM_MATCH_THR:
+            return None
+
+        center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+        pix_shift = CROP_CENTER - center_proj
+        pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+        height = np.mean([prev_pt['height'], next_pt['height']])
+        metric_shift = pix_shift / FOCAL * height
+        return prev_pt['local_posm'] + metric_shift
 
     def match_points_hom(self, out0, out1):
         """Находит гомографию между двумя наборами точек."""
