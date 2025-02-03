@@ -1,14 +1,37 @@
 import json
 from time import time
 from datetime import datetime, date, timedelta
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import cv2
 from PIL import Image
 
 from modules.xfeat_ort import XFeat
+
 from pymavlink import mavutil
+
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
+
+from numba import njit
+
+# Функция, которую можно ускорить с помощью @njit.
+@njit
+def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
+    # Вычисляем вектор сдвига (pix_shift)
+    pix_shift = crop_center - center_proj
+    # Меняем координаты: new_x = -old_y, new_y = old_x
+    new0 = -pix_shift[1]
+    new1 = pix_shift[0]
+    # Создадим новый вектор (или изменим существующий)
+    pix_shift[0] = new0
+    pix_shift[1] = new1
+    # Средняя высота
+    height = (prev_height + next_height) / 2.0
+    # Вычисляем сдвиг в метрах
+    metric_shift = pix_shift / focal * height
+    # Возвращаем обновленную позицию
+    return prev_local_pos + metric_shift
 
 
 with open('fisheye_2024-09-18.json') as f:
@@ -55,59 +78,32 @@ class VIO():
         self.prev = None
         self.HoM = None
 
-    #TODO: проверить на узкие места производительности при
-    #TODO: преобразовании изображения (маска, вращение, коррекция),
-    #TODO: при detect_and_compute, а также calc_pos
     def add_trace_pt(self, frame, msg):
-        # начало замера времени
-        total_start_time = time()
-
-        # хранение времени отдельных этапов
-        timings = {}
-
-        start_time = time()
+        
         angles= fetch_angles(msg)
-        timings['fetch_angles'] = time() - start_time
-        start_time = time()
-
         height = fetch_height(msg)
-        timings['fetch_height'] = time() - start_time
-        start_time = time()
-
         timestamp = time()
 
         frame = preprocess_frame(frame, MASK)
-        timings['preprocess_frame'] = time() - start_time
-        start_time = time()
-
+        
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180 
         
         dpp = (int(CENTER[0] + roll * 2.5),
                  int(CENTER[1] + pitch * 2.5)
         )
         
-        # Использование OpenCV быстрее, так как оно более оптимизировано для обработки изображений
-        (h, w) = frame.shape[:2]
-        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1.0)
-        rotated = cv2.warpAffine(frame, M, (w, h))
-
+        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
-        timings['rotation'] = time() - start_time
-        start_time = time()
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        timings['fisheye_correction'] = time() - start_time
-        start_time = time()
 
         trace_pt = dict(crop=crop,
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
                         )
-        timings['detect_and_compute'] = time() - start_time
-        start_time = time()
-
+        
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
 
@@ -121,35 +117,24 @@ class VIO():
             else:
                 trace_pt['local_posm'] = local_pos_metric
         
-        timings['local_position_calculation'] = time() - start_time
-        start_time = time()
-
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
         if len(tn)>=VEL_FIT_DEPTH:
             # enough data to calculate velocity
-            # Для малых объёмов данных это может быть заменено (уже)
-            vn = (tn[-1] - tn[0]) / (ts[-1] - ts[0])
-            ve = (te[-1] - te[0]) / (ts[-1] - ts[0])
-
+            vn = np.polyfit(ts, tn, 1)[0]
+            ve = np.polyfit(ts, te, 1)[0]
             vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
             # set zero velocity if data insufficient  
             vn, ve, vd = 0, 0, 0
-        timings['velocity_calculation'] = time() - start_time
-        start_time = time()
-
+            
         lat = self.lat0 + tn[-1] / METERS_DEG
         lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude 
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        timings['GPS_calculation'] = time() - start_time
-
-        # конец замера времени
-        elapsed_time = time() - total_start_time
-
+        
         return dict(timestamp=float(ts[-1]),
                     to_north=float(tn[-1]),
                     to_east=float(te[-1]),
@@ -160,70 +145,53 @@ class VIO():
                     vele=float(ve),
                     veld=float(vd),
                     GPS_week=int(GPS_week),
-                    GPS_ms=int(GPS_ms),
-                    # время замера
-                    elapsed_time=elapsed_time,
-                    timings=timings
+                    GPS_ms=int(GPS_ms)
                     )
-
-
-    #TODO: проверить на возможность модернизации
+    
+    #TODO: Переход на JIT-компиляцию (Numba/Cython) для скорости вычислений
     def calc_pos(self, next_pt):
-        # Сокращаем self.trace до последних TRACE_DEPTH элементов
-        recent_trace = self.trace[-TRACE_DEPTH:]
-        next_height = next_pt['height']
-        precomputed_results = []
-
-        # Вспомогательная функция для обработки элемента trace
-        def process_prev_pt(prev_pt):
+        """
+        Вычисляет локальную позицию на основе истории (self.trace) и данных текущего кадра (next_pt).
+        """
+        poses = []
+        for prev_pt in self.trace:
+            # Получаем совпадения и гомографию. Функция match_points_hom остается обычной.
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
-
             if len(match_prev) <= NUM_MATCH_THR:
-                return None
-
+                continue
+            # Вычисляем преобразованную центральную точку с использованием OpenCV
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
-            pix_shift = CROP_CENTER - center_proj
-            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-
-            height = np.mean([prev_pt['height'], next_height])
-            metric_shift = pix_shift / FOCAL * height
-            return prev_pt['local_posm'] + metric_shift
-
-        # Параллельная обработка recent_trace
-        with ThreadPoolExecutor() as executor:
-            precomputed_results = list(executor.map(process_prev_pt, recent_trace))
-
-        poses = [res for res in precomputed_results if res is not None]
-
-        # Возвращаем среднее значение или None
-        return np.mean(poses, axis=0) if poses else None
+            # Вызываем jitted-функцию, которая принимает только NumPy-массивы и числа.
+            local_pos = compute_local_pos(prev_pt['local_posm'],
+                                            prev_pt['height'],
+                                            next_pt['height'],
+                                            CROP_CENTER,
+                                            FOCAL,
+                                            center_proj)
+            poses.append(local_pos)
+        if len(poses):
+            return np.mean(poses, axis=0)
+        else:
+            return None
 
     def match_points_hom(self, out0, out1):
-        timings = {}  # Для сбора времени внутри функции
-        start_time = time()
-
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
-        timings['descriptor_matching'] = time() - start_time
-        start_time = time()
-
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
-        if len(mkpts_0) >= NUM_MATCH_THR:
+
+        good_prev = []
+        good_next = []
+        if len(mkpts_0)>=NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-            timings['find_homography'] = time() - start_time
-            start_time = time()
-            
+
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
             good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-            timings['filter_points'] = time() - start_time
-            
-            self.last_match_points_timings = timings  # Сохраняем последние замеры времени
+        
             return good_prev, good_next, HoM
 
         else:
-            self.last_match_points_timings = timings
             return [], [], np.eye(3)
-        
+
     def detect_and_compute(self, frame):
         img = self._matcher.parse_input(frame)
         out = self._matcher.detectAndCompute(img)[0]
@@ -324,6 +292,6 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     return map_x, map_y
 
 def preprocess_frame(frame, mask):
+    """Предобработка кадра с учетом динамичной маски."""
     frame = np.where(mask, frame, 0)
     return frame
-
