@@ -10,7 +10,16 @@ from modules.xfeat_ort import XFeat
 
 from pymavlink import mavutil
 
-from numba import njit
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='vio_ort.log',
+    filemode='w'
+)
+logger = logging.getLogger()
+
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
@@ -59,28 +68,41 @@ class VIO():
     def add_trace_pt(self, frame, msg):
         
         angles= fetch_angles(msg)
+        logger.debug(f'angles: {angles}')
+        
         height = fetch_height(msg)
+        logger.debug(f'height: {height}')
+        
         timestamp = time()
+        logger.debug(f'timestamp: {timestamp}')
 
         frame = preprocess_frame(frame, MASK)
+        logger.debug(f'frame: {frame}')
         
-        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180 
+        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+        logger.debug(f'roll: {roll}, pitch: {pitch}')
         
         dpp = (int(CENTER[0] + roll * 2.5),
                  int(CENTER[1] + pitch * 2.5)
         )
+        logger.debug(f'dpp: {dpp}')
         
         rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
+        logger.debug(f'rotated: {rotated}')
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
+        logger.debug(f'map_x: {map_x}, map_y: {map_y}')
+        
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        logger.debug(f'crop: {crop}')
 
         trace_pt = dict(crop=crop,
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
                         )
+        logger.debug(f'trace_pt: {trace_pt}')
         
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
@@ -94,6 +116,7 @@ class VIO():
                 trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
             else:
                 trace_pt['local_posm'] = local_pos_metric
+        logger.debug(f'trace_pt["local_posm"]: {trace_pt["local_posm"]}')
         
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
@@ -126,8 +149,6 @@ class VIO():
                     GPS_ms=int(GPS_ms)
                     )
     
-    #TODO: Переход на JIT-компиляцию (Numba/Cython) для скорости вычислений
-    # пробуем использовать @jit вместо @njit для избегания ошибок
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
@@ -139,15 +160,13 @@ class VIO():
                 continue
             
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
-            
-            # Вызываем jitted-функцию, которая принимает только NumPy-массивы и числа.
-            local_pos = compute_local_pos(prev_pt['local_posm'],
-                                            prev_pt['height'],
-                                            next_pt['height'],
-                                            CROP_CENTER,
-                                            FOCAL,
-                                            center_proj)
+            pix_shift = CROP_CENTER - center_proj
+            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+            height = np.mean([prev_pt['height'], next_pt['height']])
+            metric_shift = pix_shift / FOCAL * height
+            local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
+
         if len(poses):
             return np.mean(poses, axis=0)
         else:
@@ -274,21 +293,3 @@ def preprocess_frame(frame, mask):
     """Предобработка кадра с учетом динамичной маски."""
     frame = np.where(mask, frame, 0)
     return frame
-
-# Функция, которую можно ускорить с помощью @njit.
-@njit
-def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
-    # Вычисляем вектор сдвига (pix_shift)
-    pix_shift = crop_center - center_proj
-    # Меняем координаты: new_x = -old_y, new_y = old_x
-    new0 = -pix_shift[1]
-    new1 = pix_shift[0]
-    # Создадим новый вектор (или изменим существующий)
-    pix_shift[0] = new0
-    pix_shift[1] = new1
-    # Средняя высота
-    height = (prev_height + next_height) / 2.0
-    # Вычисляем сдвиг в метрах
-    metric_shift = pix_shift / focal * height
-    # Возвращаем обновленную позицию
-    return prev_local_pos + metric_shift
