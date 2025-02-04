@@ -13,26 +13,7 @@ from pymavlink import mavutil
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 
-from numba import njit
-
-# Функция, которую можно ускорить с помощью @njit.
-@njit
-def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
-    # Вычисляем вектор сдвига (pix_shift)
-    pix_shift = crop_center - center_proj
-    # Меняем координаты: new_x = -old_y, new_y = old_x
-    new0 = -pix_shift[1]
-    new1 = pix_shift[0]
-    # Создадим новый вектор (или изменим существующий)
-    pix_shift[0] = new0
-    pix_shift[1] = new1
-    # Средняя высота
-    height = (prev_height + next_height) / 2.0
-    # Вычисляем сдвиг в метрах
-    metric_shift = pix_shift / focal * height
-    # Возвращаем обновленную позицию
-    return prev_local_pos + metric_shift
-
+from numba import njit, jit
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
@@ -149,18 +130,19 @@ class VIO():
                     )
     
     #TODO: Переход на JIT-компиляцию (Numba/Cython) для скорости вычислений
+    # пробуем использовать @jit вместо @njit для избегания ошибок
     def calc_pos(self, next_pt):
-        """
-        Вычисляет локальную позицию на основе истории (self.trace) и данных текущего кадра (next_pt).
-        """
         poses = []
         for prev_pt in self.trace:
-            # Получаем совпадения и гомографию. Функция match_points_hom остается обычной.
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
+            next_pt['out'],
+            )
+
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
-            # Вычисляем преобразованную центральную точку с использованием OpenCV
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
+            
+            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+            
             # Вызываем jitted-функцию, которая принимает только NumPy-массивы и числа.
             local_pos = compute_local_pos(prev_pt['local_posm'],
                                             prev_pt['height'],
@@ -173,22 +155,23 @@ class VIO():
             return np.mean(poses, axis=0)
         else:
             return None
-
+    
     def match_points_hom(self, out0, out1):
-        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
-        mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
+        # Получаем индексы совпадений
+        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
+        # Извлекаем ключевые точки в виде NumPy-массивов
+        mkpts_0 = out0['keypoints'][idxs0].numpy()
+        mkpts_1 = out1['keypoints'][idxs1].numpy()
 
-        good_prev = []
-        good_next = []
-        if len(mkpts_0)>=NUM_MATCH_THR:
+        if len(mkpts_0) >= NUM_MATCH_THR:
+            # Находим матрицу гомографии и маску совпадений
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-
-            mask = mask.ravel()
-            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
-            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-        
+            # Приводим маску к булевому типу
+            mask = mask.ravel().astype(bool)
+            # Используем булевую индексацию для выбора хороших точек
+            good_prev = mkpts_0[mask]
+            good_next = mkpts_1[mask]
             return good_prev, good_next, HoM
-
         else:
             return [], [], np.eye(3)
 
@@ -295,3 +278,21 @@ def preprocess_frame(frame, mask):
     """Предобработка кадра с учетом динамичной маски."""
     frame = np.where(mask, frame, 0)
     return frame
+
+# Функция, которую можно ускорить с помощью @njit.
+@njit
+def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
+    # Вычисляем вектор сдвига (pix_shift)
+    pix_shift = crop_center - center_proj
+    # Меняем координаты: new_x = -old_y, new_y = old_x
+    new0 = -pix_shift[1]
+    new1 = pix_shift[0]
+    # Создадим новый вектор (или изменим существующий)
+    pix_shift[0] = new0
+    pix_shift[1] = new1
+    # Средняя высота
+    height = (prev_height + next_height) / 2.0
+    # Вычисляем сдвиг в метрах
+    metric_shift = pix_shift / focal * height
+    # Возвращаем обновленную позицию
+    return prev_local_pos + metric_shift
