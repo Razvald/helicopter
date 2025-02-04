@@ -10,10 +10,7 @@ from modules.xfeat_ort import XFeat
 
 from pymavlink import mavutil
 
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
-
-from numba import njit, jit
+from numba import njit
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
@@ -157,18 +154,17 @@ class VIO():
             return None
     
     def match_points_hom(self, out0, out1):
-        # Получаем индексы совпадений
-        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
-        # Извлекаем ключевые точки в виде NumPy-массивов
+        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
         mkpts_0 = out0['keypoints'][idxs0].numpy()
         mkpts_1 = out1['keypoints'][idxs1].numpy()
-
+        
+        good_prev = []
+        good_next = []
         if len(mkpts_0) >= NUM_MATCH_THR:
-            # Находим матрицу гомографии и маску совпадений
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-            # Приводим маску к булевому типу
+
             mask = mask.ravel().astype(bool)
-            # Используем булевую индексацию для выбора хороших точек
+
             good_prev = mkpts_0[mask]
             good_next = mkpts_1[mask]
             return good_prev, good_next, HoM

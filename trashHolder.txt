@@ -1,3 +1,227 @@
+Привет, я оптимизирую проект для быстроты выполнения. Мои основные файлы - calibrate.ipynb и vio_ort.py
+
+# %%
+import vio_ort
+import matplotlib.pyplot as plt
+import os
+import json
+import numpy as np
+import cv2
+import concurrent.futures
+import threading
+from collections import defaultdict
+
+# %%
+lat_VIO = []
+lon_VIO = []
+
+odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+
+# Путь к папке
+set_dir = '2025_1_16_15_43_35'
+set_dir = '2024_12_15_15_31_8_num_3'
+#TODO 2024_12_15_15_18_8_num_24 
+# 500 корректных значений, 1200 ошибок Missing GNRMC or VIO в json
+#TODO 2024_12_15_15_31_8_num_3 
+# 3000 корректных значений
+# значительные различия между GPS и VIO
+#TODO 2024_12_15_15_31_8_num_5 
+# 200 корректных значений, 700 ошибок Image not found
+
+# Получение всех файлов с расширением .json
+json_files = [f for f in os.listdir(set_dir) if f.endswith('.json')]
+
+# Сортировка файлов по имени
+json_files.sort()
+
+# start_json = "1730798575417.json"
+start = 30
+count_json = 600
+
+start = 0
+count_json = len(json_files)
+
+
+lat_VIO = []
+lon_VIO = []
+
+lat_GPS = []
+lon_GPS = []
+
+# %%
+# Инициализация структуры для ошибок
+fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
+
+# %%
+lock = threading.Lock()
+
+# %%
+def register_error(error_type, filename):
+    with lock:
+        if error_type not in fails_collect:
+            fails_collect[error_type] = {'num': 0, 'files': []}
+        fails_collect[error_type]['num'] += 1
+        fails_collect[error_type]['files'].append(filename)
+
+# %%
+with open("debug_output.txt", "w") as f:
+    f.write("")
+
+# %%
+def process_file(filename):
+    try:
+        with open(f'{set_dir}/{filename}', 'r') as file:
+            data = json.load(file)
+
+        if 'GNRMC' not in data or 'VIO' not in data:
+            register_error("Missing GNRMC or VIO", filename)
+            return
+
+        if data['GNRMC'].get('status') != 'A':
+            register_error("GNRMC status not 'A'", filename)
+            return
+
+        img_path = f"{set_dir}/{os.path.splitext(filename)[0]}.jpg"
+        if not os.path.exists(img_path):
+            register_error("Image not found", filename)
+            return
+
+        image = cv2.imread(img_path)
+        if image is None:
+            register_error("Failed to load image", filename)
+            return
+
+        try:
+            with open("debug_output.txt", "a") as f:
+                f.write(f"[VIO] Attempting to add trace point for image: \n{image}\ndata: \n{data}\n\n\n")
+            
+            result_vio = odometry.add_trace_pt(image, data)
+            
+            if 'lat' not in result_vio or 'lon' not in result_vio:
+                with open("debug_output.txt", "a") as f:
+                    f.write(f"[VIO] Missing 'lat' or 'lon' in result: {result_vio}\n")
+                register_error("VIO result missing 'lat' or 'lon'", filename)
+                return
+
+            with lock:
+                lat_VIO.append(result_vio['lat'])
+                lon_VIO.append(result_vio['lon'])
+        except Exception as e:
+            with open("debug_output.txt", "a") as f:
+                f.write(f"[VIO] Error occurred: {str(e)}\n")
+            register_error("VIO processing error", filename)
+            return
+
+        try:
+            with lock:
+                lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+        except KeyError:
+            register_error("GPS data missing", filename)
+        
+    except json.JSONDecodeError:
+        register_error("JSON decode error", filename)
+    except Exception:
+        register_error("Processing error", filename)
+
+# %%
+workers = 6
+
+# %% [markdown]
+# Путем перебора наибольшая выгода при 6 потоках
+
+# %%
+with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        executor.map(process_file, json_files[start:start + count_json])
+
+# %% [markdown]
+# С вынесением части кода для использования @njit, а также вместо явного перебора элементов (циклом for) используем векторизированный доступ, уходит 1m32s, 1m31s, 1m33s, 1m34s
+
+# %% [markdown]
+# С вынесением части кода для использования @njit уходит 1m35s, 1m32s, 1m34s
+
+# %%
+# Вывод отчетности
+print("\nError Report:")
+for error_type, error_info in fails_collect.items():
+    print(f"{error_type} - {error_info['num']} occurrences")
+    print(f"Files: {', '.join(error_info['files'])}")
+    print()
+
+# %%
+print(f'GPS lat: {lat_GPS[0]}')
+print(f'VIO lat: {lat_VIO[0]}')
+
+# %%
+print(f'GPS lon: {lon_GPS[0]}')
+print(f'VIO lon: {lon_VIO[0]}')
+
+# %%
+print(len(lat_GPS))
+print(len(lat_VIO))
+
+# %%
+copy_lat_VIO = lat_VIO.copy()
+copy_lon_VIO = lon_VIO.copy()
+
+copy_lat_GPS = lat_GPS.copy()
+copy_lon_GPS = lon_GPS.copy()
+
+# Create figure and axis
+# Создаем фигуру и оси
+plt.figure(figsize=(10, 5))
+copy_lat_GPS = [ - x + 2 * 54.8894116667 for x in copy_lat_GPS]
+
+# Рисуем первый график
+plt.plot(copy_lon_GPS, copy_lat_GPS, label='GPS', color='blue')
+
+# Рисуем второй график
+plt.plot(copy_lon_VIO, copy_lat_VIO, label='VIO', color='red')
+
+# Добавляем заголовок и метки осей
+plt.title('Графики GPS и VIO')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+
+# Добавляем легенду
+plt.legend()
+
+# Display the plot
+plt.tight_layout()
+plt.show()
+
+# %%
+copy_lat_VIO = lat_VIO.copy()
+copy_lon_VIO = lon_VIO.copy()
+
+copy_lat_GPS = lat_GPS.copy()
+copy_lon_GPS = lon_VIO.copy()
+
+# Create figure and axis
+# Создаем фигуру и оси
+plt.figure(figsize=(10, 5))
+# copy_lat_GPS = [ - x + 2 * 54.8894116667 for x in copy_lat_GPS]
+
+# Рисуем первый график
+plt.plot(copy_lon_GPS, copy_lat_GPS, label='GPS', color='blue')
+
+# Рисуем второй график
+plt.plot(copy_lon_VIO, copy_lat_VIO, label='VIO', color='red')
+
+# Добавляем заголовок и метки осей
+plt.title('Графики GPS и VIO')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+
+# Добавляем легенду
+plt.legend()
+
+# Display the plot
+plt.tight_layout()
+plt.show()
+
+--------------------------------------------------
+
 import json
 from time import time
 from datetime import datetime, date, timedelta
@@ -13,26 +237,7 @@ from pymavlink import mavutil
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 
-from numba import njit
-
-# Функция, которую можно ускорить с помощью @njit.
-@njit
-def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
-    # Вычисляем вектор сдвига (pix_shift)
-    pix_shift = crop_center - center_proj
-    # Меняем координаты: new_x = -old_y, new_y = old_x
-    new0 = -pix_shift[1]
-    new1 = pix_shift[0]
-    # Создадим новый вектор (или изменим существующий)
-    pix_shift[0] = new0
-    pix_shift[1] = new1
-    # Средняя высота
-    height = (prev_height + next_height) / 2.0
-    # Вычисляем сдвиг в метрах
-    metric_shift = pix_shift / focal * height
-    # Возвращаем обновленную позицию
-    return prev_local_pos + metric_shift
-
+from numba import njit, jit
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
@@ -149,18 +354,19 @@ class VIO():
                     )
     
     #TODO: Переход на JIT-компиляцию (Numba/Cython) для скорости вычислений
+    # пробуем использовать @jit вместо @njit для избегания ошибок
     def calc_pos(self, next_pt):
-        """
-        Вычисляет локальную позицию на основе истории (self.trace) и данных текущего кадра (next_pt).
-        """
         poses = []
         for prev_pt in self.trace:
-            # Получаем совпадения и гомографию. Функция match_points_hom остается обычной.
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
+            next_pt['out'],
+            )
+
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
-            # Вычисляем преобразованную центральную точку с использованием OpenCV
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
+            
+            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+            
             # Вызываем jitted-функцию, которая принимает только NumPy-массивы и числа.
             local_pos = compute_local_pos(prev_pt['local_posm'],
                                             prev_pt['height'],
@@ -173,22 +379,22 @@ class VIO():
             return np.mean(poses, axis=0)
         else:
             return None
-
+    
     def match_points_hom(self, out0, out1):
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
-        mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
-
+        mkpts_0 = out0['keypoints'][idxs0].numpy()
+        mkpts_1 = out1['keypoints'][idxs1].numpy()
+        
         good_prev = []
         good_next = []
-        if len(mkpts_0)>=NUM_MATCH_THR:
+        if len(mkpts_0) >= NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
 
-            mask = mask.ravel()
-            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
-            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-        
-            return good_prev, good_next, HoM
+            mask = mask.ravel().astype(bool)
 
+            good_prev = mkpts_0[mask]
+            good_next = mkpts_1[mask]
+            return good_prev, good_next, HoM
         else:
             return [], [], np.eye(3)
 
@@ -295,3 +501,22 @@ def preprocess_frame(frame, mask):
     """Предобработка кадра с учетом динамичной маски."""
     frame = np.where(mask, frame, 0)
     return frame
+
+# Функция, которую можно ускорить с помощью @njit.
+@njit
+def compute_local_pos(prev_local_pos, prev_height, next_height, crop_center, focal, center_proj):
+    # Вычисляем вектор сдвига (pix_shift)
+    pix_shift = crop_center - center_proj
+    # Меняем координаты: new_x = -old_y, new_y = old_x
+    new0 = -pix_shift[1]
+    new1 = pix_shift[0]
+    # Создадим новый вектор (или изменим существующий)
+    pix_shift[0] = new0
+    pix_shift[1] = new1
+    # Средняя высота
+    height = (prev_height + next_height) / 2.0
+    # Вычисляем сдвиг в метрах
+    metric_shift = pix_shift / focal * height
+    # Возвращаем обновленную позицию
+    return prev_local_pos + metric_shift
+
