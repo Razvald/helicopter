@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Указываем путь к директории, где находятся репорты
-REPORT_DIR="$(realpath "./Profiling/Reports")"
+# Указываем путь к корневой директории для профилирования
+REPORT_DIR_HOME="$(realpath "./Profiling")"
+REPORT_DIR="$REPORT_DIR_HOME/Reports"
 
 # Проверяем, передан ли файл для профилирования
 if [ -z "$1" ]; then
@@ -19,6 +20,12 @@ if [ ! -f "$SCRIPT_PATH" ]; then
     exit 1
 fi
 
+# Создание папки для отчётов, если её нет
+if [ ! -d "$REPORT_DIR" ]; then
+    mkdir -p "$REPORT_DIR"
+    echo "Создана папка для отчётов: $REPORT_DIR"
+fi
+
 # Запуск профилирования
 echo "Профилирование файла: $SCRIPT_PATH"
 nsys profile -o report_temp python3 "$SCRIPT_PATH"
@@ -30,12 +37,12 @@ LATEST_REPORT=$(find . -type f -name "report_temp*.nsys-rep" -printf "%T@ %p\n" 
 if [ -n "$LATEST_REPORT" ]; then
     echo "Последний созданный отчет: $LATEST_REPORT"
 
-    # Создание нового имени для отчета на основе текущей даты и времени
+    # Создание нового имени для отчёта на основе текущей даты и времени
     TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
     NEW_REPORT_NAME="report_$TIMESTAMP.nsys-rep"
     NEW_REPORT_PATH="$REPORT_DIR/$NEW_REPORT_NAME"
 
-    # Перемещение отчета с новым именем
+    # Перемещение отчёта с новым именем
     mv "$LATEST_REPORT" "$NEW_REPORT_PATH"
 
     echo "Отчет перемещен в: $NEW_REPORT_PATH"
