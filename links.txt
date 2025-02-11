@@ -1,5 +1,0 @@
-https://github.com/verlab/accelerated_features
-
-http://www.orangepi.org/html/hardWare/computerAndMicrocontrollers/details/Orange-Pi-5.html
-
-https://github.com/ArduPilot?ysclid=m692g2bjws637571769
