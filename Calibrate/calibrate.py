@@ -145,24 +145,136 @@ print(len(lat_GPS))
 print(len(lat_VIO))
 
 # %%
-alt_VIO = [ x * 1000 for x in alt_VIO]
+# Шаг 1. Загрузка координат
+gps_lat = lat_GPS.copy()
+gps_lon = lon_GPS.copy()
+vio_lat = lat_VIO.copy()
+vio_lon = lon_VIO.copy()
+gps_alt = alt_GPS.copy()
+vio_alt = alt_VIO.copy()
 
 # %%
-# Создание 3D графика
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
+# Шаг 2. Сохраняем начальные точки (они должны совпадать)
+gps_lon0 = gps_lon[0]
+gps_lat0 = gps_lat[0]
+vio_lon0 = vio_lon[0]
+vio_lat0 = vio_lat[0]
 
-# Построение маршрута
-ax.plot(lat_VIO, lon_VIO, alt_VIO, label='Маршрут VIO', color='blue')
-ax.plot(lat_GPS, lon_GPS, alt_GPS, label='Маршрут GPS', color='red')
+# %%
+# Шаг 3. Вычисляем средние изменения (дельты) для последовательностей координат
+mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
+mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
 
-# Настройки графика
-ax.set_xlabel('Latitude')
-ax.set_ylabel('Longitude')
-ax.set_zlabel('Altitude')
-ax.legend()
+mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
+mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
 
-# Отображение графика
+
+# %%
+# Шаг 4. Вычисляем масштабные коэффициенты
+# Здесь предположено, что оси VIO перепутаны:
+# - GPS долгота (горизонталь) соответствует VIO "широте" (vio_lat)
+# - GPS широта (вертикаль) соответствует VIO "долготе" (vio_lon)
+scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff  # Для преобразования VIO широты -> GPS долгота
+scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff  # Для преобразования VIO долготы -> GPS широта
+
+
+# %%
+# Шаг 5. Сохраняем параметры трансформации в JSON
+transformation_params = {
+    "gps_lon0": gps_lon0,
+    "gps_lat0": gps_lat0,
+    "vio_lon0": vio_lon0,
+    "vio_lat0": vio_lat0,
+    "scale_for_lon": scale_for_lon,
+    "scale_for_lat": scale_for_lat
+}
+
+with open("transformation_params.json", "w") as f:
+    json.dump(transformation_params, f, indent=4)
+
+# %%
+# Шаг 6. Определяем функцию для преобразования VIO координат с использованием сохранённых параметров
+def transform_vio_coords(vio_lon_list, vio_lat_list, params):
+    """
+    Преобразование координат VIO по сохранённым параметрам.
+    Аргументы:
+        vio_lon_list: список VIO долготы (будет использоваться для расчёта GPS широты)
+        vio_lat_list: список VIO широты (будет использоваться для расчёта GPS долготы)
+        params: словарь с параметрами трансформации
+    Возвращает:
+        transformed_lon: список преобразованных GPS долготы
+        transformed_lat: список преобразованных GPS широты
+    """
+    gps_lon0 = params["gps_lon0"]
+    gps_lat0 = params["gps_lat0"]
+    vio_lon0 = params["vio_lon0"]
+    vio_lat0 = params["vio_lat0"]
+    scale_for_lon = params["scale_for_lon"]
+    scale_for_lat = params["scale_for_lat"]
+
+    # Преобразование:
+    # Для GPS долготы используем VIO широту, сдвигаем и масштабируем:
+    transformed_lon = [(v_lat - vio_lat0) * scale_for_lon + gps_lon0 for v_lat in vio_lat_list]
+    # Для GPS широты используем VIO долготу, но с инверсией (так как ось перевёрнута):
+    transformed_lat = [-(v_lon - vio_lon0) * scale_for_lat + gps_lat0 for v_lon in vio_lon_list]
+    return transformed_lon, transformed_lat
+
+# Применяем трансформацию к имеющимся данным (для демонстрации)
+vio_lon_transformed, vio_lat_transformed = transform_vio_coords(vio_lon, vio_lat, transformation_params)
+
+# Преобразуем высоту VIO в метры (делим на 10, так как в VIO высота в дециметрах)
+vio_alt_meters = [v_alt * 1000 for v_alt in vio_alt]
+
+# %%
+# Создаем несколько графиков с разными углами обзора
+fig = plt.figure(figsize=(18, 14))
+
+# Первый график — угол 30 по вертикали и 60 по горизонтали
+ax1 = fig.add_subplot(231, projection='3d')
+ax1.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+ax1.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+ax1.set_xlabel('Долгота', fontsize=10)  # Уменьшаем размер шрифта
+ax1.set_ylabel('Широта', fontsize=10)
+ax1.set_title('Вид 1: 90° по вертикали, -90° по горизонтали', fontsize=12)
+ax1.view_init(elev=90, azim=-90)
+ax1.legend()
+ax1.tick_params(axis='both', which='major', labelsize=8)  # Уменьшаем размер меток осей
+
+# Второй график — угол 45 по вертикали и 90 по горизонтали
+ax2 = fig.add_subplot(232, projection='3d')
+ax2.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+ax2.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+ax2.set_xlabel('Долгота', fontsize=10)
+ax2.set_zlabel('Высота (метры)', fontsize=10)
+ax2.set_title('Вид 2: 0° по вертикали, 90° по горизонтали', fontsize=12)
+ax2.view_init(elev=0, azim=-90)
+ax2.legend()
+ax2.tick_params(axis='both', which='major', labelsize=8)
+
+# Третий график — угол 60 по вертикали и 180 по горизонтали
+ax3 = fig.add_subplot(233, projection='3d')
+ax3.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+ax3.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+ax3.set_xlabel('Долгота', fontsize=10)
+ax3.set_ylabel('Широта', fontsize=10)
+ax3.set_zlabel('Высота (метры)', fontsize=10)
+ax3.set_title('Вид 3: 60° по вертикали, 180° по горизонтали', fontsize=12)
+ax3.view_init(elev=60, azim=180)
+ax3.legend()
+ax3.tick_params(axis='both', which='major', labelsize=8)
+
+# Автоматически подгоняем графики по размеру
+plt.tight_layout()
+
+# Скрываем метки оси
+ax1.set_zticks([])
+ax1.set_zticklabels([])
+
+# Скрываем метки оси
+ax2.set_yticks([])
+ax2.set_yticklabels([])
+
+# Показать графики
 plt.show()
 
 
@@ -171,14 +283,9 @@ draw_cinema = False
 
 # %%
 if draw_cinema:
-    # Пример данных (замените на ваши данные)
-    lat = lat_GPS
-    lon = lon_GPS
-    alt = alt_GPS
-
-    """lat = lat_VIO
-    lon = lon_VIO
-    alt = alt_VIO"""
+    lat = vio_lat
+    lon = vio_lon
+    alt = vio_alt
 
     step = 1
 
@@ -251,61 +358,5 @@ if draw_cinema:
     )
 
     fig.show()
-
-# %%
-# Списки для данных
-gps_lats = lat_GPS.copy()
-gps_lons = lon_GPS.copy()
-vio_lats = lat_VIO.copy()
-vio_lons = lon_VIO.copy()
-
-gps_lats = [ -x + 2 * 54.8894116667 for x in gps_lats]
-
-#vio_lats = [ -x + 2 * 54.8894116667 for x in vio_lats]
-vio_lons = [ -x + 2 * 83.1258973333 for x in vio_lons]
-
-# Визуализация данных с аномалиями
-plt.figure(figsize=(6, 5))
-
-plt.plot(gps_lons, gps_lats, color="black", label="GPS")
-plt.plot(vio_lons, vio_lats, color="red", label="VIO")
-
-plt.title("Сравнение траекторий GPS и VIO")
-plt.xlabel("Долгота")
-plt.ylabel("Широта")
-plt.legend()
-plt.grid()
-plt.show()
-
-# %%
-copy_lat_VIO = lat_VIO.copy()
-copy_lon_VIO = lon_VIO.copy()
-
-copy_lat_GPS = lat_GPS.copy()
-copy_lon_GPS = lon_GPS.copy()
-
-# Создаем фигуру и оси
-plt.figure(figsize=(10, 5))
-
-# Преобразование для глобальных координат широты
-copy_lat_GPS = [ -x + 2 * 54.8894116667 for x in copy_lat_GPS]
-
-# Рисуем первый график (GPS)
-plt.plot(copy_lon_GPS, copy_lat_GPS, label='GPS', color='blue')
-
-# Рисуем второй график (VIO)
-plt.plot(copy_lon_VIO, copy_lat_VIO, label='VIO', color='red')
-
-# Добавляем заголовок и метки осей
-plt.title('Графики GPS и VIO (с глобальными координатами)')
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
-
-# Добавляем легенду
-plt.legend()
-
-# Отображение графика
-plt.tight_layout()
-plt.show()
 
 
