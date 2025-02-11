@@ -10,23 +10,32 @@ from modules.xfeat_ort import XFeat
 
 from pymavlink import mavutil
 
+import nvtx
 
-with open('fisheye_2024-09-18.json') as f:
-    camparam = json.load(f)
 
-for shape in camparam['shapes']:
-    if shape['label']=='mask':
-        MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
-        cnt = np.asarray(shape['points']).reshape(-1,1,2).astype(np.int32)
-        cv2.drawContours(MASK, [cnt], -1, (255,255,255), -1)
+# Загрузка параметров камеры
+with nvtx.annotate("Load Camera Parameters", color="darkgreen"):
+    with open('fisheye_2024-09-18.json') as f:
+        camparam = json.load(f)
 
-CENTER = [camparam['ppx'], camparam['ppy']]
-CENTER[0] += -6 #TODO insert corrections into file
-CENTER[1] += 26 #TODO insert corrections into file
-FOCAL = camparam['focal']
-RAD = camparam['radius']
-CROP_CENTER = np.asarray([RAD/2, RAD/2])
+    MASK = None
+    for shape in camparam['shapes']:
+        if shape['label'] == 'mask':
+            with nvtx.annotate("Create Camera Mask", color="purple"):
+                MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
+                cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
+                cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
 
+    with nvtx.annotate("Initialize Camera Constants", color="brown"):
+        CENTER = [camparam['ppx'], camparam['ppy']]
+        CENTER[0] += -6  # TODO: insert corrections into file
+        CENTER[1] += 26  # TODO: insert corrections into file
+        FOCAL = camparam['focal']
+        RAD = camparam['radius']
+        CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
+
+
+# Константы
 HOMO_THR = 2.0
 NUM_MATCH_THR = 8
 TRACE_DEPTH = 4
@@ -34,15 +43,6 @@ VEL_FIT_DEPTH = TRACE_DEPTH
 METERS_DEG = 111320
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
-
-def count_none_recursive(arr):
-    count = 0
-    for item in arr:
-        if isinstance(item, list) or isinstance(item, np.ndarray):
-            count += count_none_recursive(item)
-        elif item is None:
-            count += 1
-    return count
 
 class VIO():
     
@@ -54,61 +54,65 @@ class VIO():
         self.trace = []
         self.prev = None
         self.HoM = None
-
+        
+    @nvtx.annotate("VIO.add_trace_pt", color="blue")
     def add_trace_pt(self, frame, msg):
         
-        angles= fetch_angles(msg)
+        # Получаем углы и высоту – можно обернуть в отдельный NVTX-блок
         
-        height = fetch_height(msg)
+        with nvtx.annotate("Fetch Angles & Height", color="green"):
+            angles = fetch_angles(msg)
+            height = fetch_height(msg)
+            timestamp = time()
         
-        timestamp = time()
+        with nvtx.annotate("Preprocess Frame", color="yellow"):
+            frame = preprocess_frame(frame, MASK)
 
-        frame = preprocess_frame(frame, MASK)
-        
-        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
-        
-        dpp = (int(CENTER[0] + roll * 2.5),
-                 int(CENTER[1] + pitch * 2.5)
-        )
-        
-        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
-        rotated = np.asarray(rotated)
+        with nvtx.annotate("Rotate Image", color="orange"):
+            roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+            dpp = (int(CENTER[0] + roll * 2.5),
+                   int(CENTER[1] + pitch * 2.5))
+            rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+            rotated = np.asarray(rotated)
 
-        map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
+        # Здесь можно добавить аннотацию для remapping и дальнейшей обработки
+        with nvtx.annotate("Remap and Crop", color="cyan"):
+            map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
+            crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         
-        crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-
-        trace_pt = dict(crop=crop,
-                        out= self.detect_and_compute(crop),
-                        angles=angles,
-                        height=height,
-                        )
+        # Далее обработка трассы, расчёт позиции и т.д.
+        with nvtx.annotate("Detect and compute", color="red"):
+            trace_pt = dict(crop=crop,
+                            out=self.detect_and_compute(crop),
+                            angles=angles,
+                            height=height)
         
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
 
-        if len(self.trace)==0:
-            trace_pt['local_posm'] = np.asarray([0, 0])
-        else:
-            local_pos_metric = self.calc_pos(trace_pt)
-            if local_pos_metric is None:
-                # copy previous value if no one matches found on any of the previous frames
-                trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
+        # Например, аннотировать расчёт локальной позиции:
+        with nvtx.annotate("Calculate Local Position", color="magenta"):
+            if len(self.trace) == 0:
+                trace_pt['local_posm'] = np.asarray([0, 0])
             else:
-                trace_pt['local_posm'] = local_pos_metric
+                local_pos_metric = self.calc_pos(trace_pt)
+                if local_pos_metric is None:
+                    trace_pt['local_posm'] = self.trace[-1]['local_posm']
+                else:
+                    trace_pt['local_posm'] = local_pos_metric
         
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
-        ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
-        if len(tn)>=VEL_FIT_DEPTH:
-            # enough data to calculate velocity
-            vn = np.polyfit(ts, tn, 1)[0]
-            ve = np.polyfit(ts, te, 1)[0]
-            vd = 0 #- np.polyfit(ts, he, 1)[0]
-        else:
-            # set zero velocity if data insufficient  
-            vn, ve, vd = 0, 0, 0
+        # Пример расчёта скорости
+        with nvtx.annotate("Fit Velocity", color="darkorange"):
+            ts, tn, te, he = np.asarray(self.track[-TRACE_DEPTH:]).T
+            if len(tn) >= TRACE_DEPTH:
+                vn = np.polyfit(ts, tn, 1)[0]
+                ve = np.polyfit(ts, te, 1)[0]
+                vd = 0
+            else:
+                vn, ve, vd = 0, 0, 0
             
         lat = self.lat0 + tn[-1] / METERS_DEG
         lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude 
@@ -132,8 +136,7 @@ class VIO():
         poses = []
         for prev_pt in self.trace:
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
-            next_pt['out'],
-            )
+            next_pt['out'],)
 
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
@@ -269,6 +272,5 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     return map_x, map_y
 
 def preprocess_frame(frame, mask):
-    """Предобработка кадра с учетом динамичной маски."""
     frame = np.where(mask, frame, 0)
     return frame

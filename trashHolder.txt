@@ -1,282 +1,156 @@
-{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "Отображаем найденные совпадения используя встроенный метод cv2.ORB_create и cv2.BFMatcher"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import cv2\n",
-    "\n",
-    "img1 = cv2.imread('2024_12_15_15_31_8_num_3/1734248113095.jpg', 0)\n",
-    "img2 = cv2.imread('2024_12_15_15_31_8_num_3/1734248113241.jpg', 0)\n",
-    "\n",
-    "orb = cv2.ORB_create()\n",
-    "kp1, des1 = orb.detectAndCompute(img1, None)\n",
-    "print(len(kp1)) # Выводим количество ключевых точек\n",
-    "kp2, des2 = orb.detectAndCompute(img2, None)\n",
-    "print(len(kp2))\n",
-    "\n",
-    "bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)\n",
-    "matches = bf.match(des1, des2)\n",
-    "\n",
-    "print(len(matches))  # Выводим количество совпадений (matches)\n",
-    "\n",
-    "# Рисуем соответствия\n",
-    "img_matches = cv2.drawMatches(img1, kp1, img2, kp2, matches, None)\n",
-    "cv2.imshow(\"Matches\", img_matches)\n",
-    "cv2.waitKey(0)\n",
-    "cv2.destroyAllWindows()"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import cv2\n",
-    "import os\n",
-    "\n",
-    "# Укажи путь к папке с изображениями\n",
-    "img_folder = '2024_12_15_15_31_8_num_3'\n",
-    "\n",
-    "# Получаем список файлов с расширением .jpg и сортируем\n",
-    "img_files = sorted([f for f in os.listdir(img_folder) if f.lower().endswith('.jpg')])\n",
-    "\n",
-    "# Инициализация ORB и BFMatcher\n",
-    "orb = cv2.ORB_create()\n",
-    "bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)\n",
-    "\n",
-    "# Проходим по парам соседних изображений\n",
-    "for i in range(len(img_files) - 1):\n",
-    "    # Чтение двух последовательных изображений в режиме градаций серого\n",
-    "    img1_path = os.path.join(img_folder, img_files[i])\n",
-    "    img2_path = os.path.join(img_folder, img_files[i + 1])\n",
-    "    \n",
-    "    img1 = cv2.imread(img1_path, cv2.IMREAD_GRAYSCALE)\n",
-    "    img2 = cv2.imread(img2_path, cv2.IMREAD_GRAYSCALE)\n",
-    "    \n",
-    "    # Если одно из изображений не загрузилось, пропускаем пару\n",
-    "    if img1 is None or img2 is None:\n",
-    "        continue\n",
-    "    \n",
-    "    # Вычисляем ключевые точки и дескрипторы для обеих картинок\n",
-    "    kp1, des1 = orb.detectAndCompute(img1, None)\n",
-    "    kp2, des2 = orb.detectAndCompute(img2, None)\n",
-    "    \n",
-    "    # Если дескрипторы не найдены, пропускаем пару\n",
-    "    if des1 is None or des2 is None:\n",
-    "        continue\n",
-    "    \n",
-    "    # Поиск соответствий между дескрипторами\n",
-    "    matches = bf.match(des1, des2)\n",
-    "    \n",
-    "    # Сортируем найденные соответствия по расстоянию (чем меньше расстояние, тем лучше)\n",
-    "    matches = sorted(matches, key=lambda x: x.distance)\n",
-    "    \n",
-    "    # Можно ограничить число отрисовываемых соответствий, например, первыми 20\n",
-    "    num_matches_to_draw = 20\n",
-    "    img_matches = cv2.drawMatches(img1, kp1, img2, kp2, matches[:num_matches_to_draw], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)\n",
-    "    \n",
-    "    # Отображаем результат\n",
-    "    cv2.imshow(\"Matches\", img_matches)\n",
-    "    \n",
-    "    # Ожидаем нажатия клавиши. Если нажата клавиша Esc (код 27), выходим.\n",
-    "    key = cv2.waitKey(0) & 0xFF\n",
-    "    if key == 27:\n",
-    "        break\n",
-    "\n",
-    "cv2.destroyAllWindows()"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "Отображаем найденные совпадения используя XFeat"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import os\n",
-    "os.environ[\"QT_QPA_PLATFORM\"] = \"xcb\"\n",
-    "import cv2\n",
-    "\n",
-    "import numpy as np\n",
-    "import json\n",
-    "\n",
-    "from modules.xfeat_ort import XFeat\n",
-    "import logging\n",
-    "\n",
-    "# Настройка логгера\n",
-    "logging.basicConfig(\n",
-    "    level=logging.DEBUG,\n",
-    "    format='%(asctime)s - %(levelname)s - %(message)s',\n",
-    "    filename='vio_ort.log',\n",
-    "    filemode='w'\n",
-    ")\n",
-    "logger = logging.getLogger()\n",
-    "\n",
-    "# Загружаем параметры камеры\n",
-    "with open('fisheye_2024-09-18.json') as f:\n",
-    "    camparam = json.load(f)\n",
-    "\n",
-    "# Формируем маску (по контуру объекта с label == 'mask')\n",
-    "for shape in camparam['shapes']:\n",
-    "    if shape['label'] == 'mask':\n",
-    "        MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)\n",
-    "        cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)\n",
-    "        cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)\n",
-    "\n",
-    "# Глобальные переменные для преобразования\n",
-    "CENTER = [camparam['ppx'], camparam['ppy']]\n",
-    "CENTER[0] += -6   # TODO: поправка\n",
-    "CENTER[1] += 26   # TODO: поправка\n",
-    "FOCAL = camparam['focal']\n",
-    "RAD = camparam['radius']\n",
-    "CROP_CENTER = np.asarray([RAD / 2, RAD / 2])\n",
-    "\n",
-    "# Функция для вычисления карты преобразования \"рыбий глаз → прямолинейное\"\n",
-    "def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):\n",
-    "    rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)\n",
-    "    r = np.sqrt(rx**2 + ry**2) / focal\n",
-    "    angle_n = np.arctan(r)\n",
-    "    if fproj == 'equidistant':\n",
-    "        angle_n = angle_n\n",
-    "    elif fproj == 'orthographic':\n",
-    "        angle_n = np.sin(angle_n)\n",
-    "    elif fproj == 'stereographic':\n",
-    "        angle_n = 2 * np.tan(angle_n / 2)\n",
-    "    elif fproj == 'equisolid':\n",
-    "        angle_n = 2 * np.sin(angle_n / 2)\n",
-    "    angle_t = np.arctan2(ry, rx)\n",
-    "    pt_x = focal * angle_n * np.cos(angle_t) + pp[0]\n",
-    "    pt_y = focal * angle_n * np.sin(angle_t) + pp[1]\n",
-    "    map_x = pt_x.astype(np.float32)\n",
-    "    map_y = pt_y.astype(np.float32)\n",
-    "    return map_x, map_y\n",
-    "\n",
-    "# Простая функция для применения маски\n",
-    "def preprocess_frame(frame, mask):\n",
-    "    return np.where(mask, frame, 0)\n",
-    "\n",
-    "# Инициализируем XFeat\n",
-    "matcher = XFeat(top_k=512, detection_threshold=0.05)\n",
-    "\n",
-    "# Пути к двум изображениям\n",
-    "img1_path = '2024_12_15_15_31_8_num_3/1734248113095.jpg'\n",
-    "img2_path = '2024_12_15_15_31_8_num_3/1734248113241.jpg'\n",
-    "\n",
-    "# Загружаем изображения (в цветном формате)\n",
-    "img1 = cv2.imread(img1_path)\n",
-    "img2 = cv2.imread(img2_path)\n",
-    "\n",
-    "if img1 is None or img2 is None:\n",
-    "    logger.error(\"Не удалось загрузить одно из изображений.\")\n",
-    "    raise SystemExit(\"Ошибка загрузки изображений\")\n",
-    "\n",
-    "# Применяем маску\n",
-    "img1_masked = preprocess_frame(img1, MASK)\n",
-    "img2_masked = preprocess_frame(img2, MASK)\n",
-    "\n",
-    "# Выполняем преобразование из рыбьего глаза в прямолинейное.\n",
-    "# Здесь в качестве размеров берем RAD x RAD – можно менять в зависимости от задачи.\n",
-    "map_x, map_y = fisheye2rectilinear(FOCAL, CENTER, RAD, RAD)\n",
-    "img1_rect = cv2.remap(img1_masked, map_x, map_y,\n",
-    "                        interpolation=cv2.INTER_LINEAR,\n",
-    "                        borderMode=cv2.BORDER_CONSTANT)\n",
-    "img2_rect = cv2.remap(img2_masked, map_x, map_y,\n",
-    "                        interpolation=cv2.INTER_LINEAR,\n",
-    "                        borderMode=cv2.BORDER_CONSTANT)\n",
-    "\n",
-    "# Приводим изображения к виду, который ожидает XFeat (в add_trace_pt в проекте используется parse_input)\n",
-    "img1_input = matcher.parse_input(img1_rect)\n",
-    "img2_input = matcher.parse_input(img2_rect)\n",
-    "\n",
-    "# Вычисляем ключевые точки и дескрипторы\n",
-    "out1 = matcher.detectAndCompute(img1_input)[0]\n",
-    "out2 = matcher.detectAndCompute(img2_input)[0]\n",
-    "\n",
-    "logger.debug(f\"Изображение 1: {len(out1['keypoints'])} ключевых точек\")\n",
-    "logger.debug(f\"Изображение 2: {len(out2['keypoints'])} ключевых точек\")\n",
-    "\n",
-    "# Сопоставляем дескрипторы через XFeat.match\n",
-    "idxs1, idxs2 = matcher.match(out1['descriptors'], out2['descriptors'], min_cossim=-1)\n",
-    "logger.debug(f\"Найдено сопоставлений: {len(idxs1)}\")\n",
-    "\n",
-    "# Для отрисовки через cv2.drawMatches нам нужно сформировать объекты cv2.KeyPoint.\n",
-    "# Функция для преобразования координат в список cv2.KeyPoint\n",
-    "def create_cv2_keypoints(pts):\n",
-    "    kps = []\n",
-    "    for pt in pts:\n",
-    "        # Предполагаем, что pt имеет вид (x, y)\n",
-    "        kps.append(cv2.KeyPoint(float(pt[0]), float(pt[1]), 1))\n",
-    "    return kps\n",
-    "\n",
-    "# Получаем координаты ключевых точек по найденным индексам.\n",
-    "# Если тип ключевых точек – не numpy-массив, пробуем привести через np.array.\n",
-    "kp1_coords = list(out1['keypoints'])\n",
-    "kp2_coords = list(out2['keypoints'])\n",
-    "print(len(kp1_coords))\n",
-    "print(len(kp2_coords))\n",
-    "kp1_coords = [kp1_coords[i] for i in idxs1]\n",
-    "kp2_coords = [kp2_coords[i] for i in idxs2]\n",
-    "\n",
-    "kps1 = create_cv2_keypoints(kp1_coords)\n",
-    "kps2 = create_cv2_keypoints(kp2_coords)\n",
-    "\n",
-    "# Создаём объекты DMatch – здесь по количеству совпадений.\n",
-    "matches = []\n",
-    "for i in range(len(kps1)):\n",
-    "    # В DMatch поля _queryIdx и _trainIdx соответствуют индексам в списках ключевых точек\n",
-    "    m = cv2.DMatch(_queryIdx=i, _trainIdx=i, _distance=0)\n",
-    "    matches.append(m)\n",
-    "\n",
-    "print(len(matches))\n",
-    "\n",
-    "# Отрисовываем сопоставления на прямолинейных изображениях\n",
-    "img_matches = cv2.drawMatches(img1_rect, kps1,\n",
-    "                                img2_rect, kps2,\n",
-    "                                matches, None,\n",
-    "                                flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)\n",
-    "\n",
-    "cv2.imshow(\"Matches\", img_matches)\n",
-    "cv2.waitKey(0)\n",
-    "cv2.destroyAllWindows()\n"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.12.3"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 2
-}
+# %%
+import nvtx
+import vio_ort
+import matplotlib.pyplot as plt
+import os
+import json
+import cv2
+import concurrent.futures
+import threading
+from collections import defaultdict
+import plotly.graph_objects as go
+
+# %%
+with nvtx.annotate("Initialize VIO and Parameters", color="blue"):
+    odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+
+    set_dir = '2024_12_15_15_31_8_num_3'
+
+    json_files = [f for f in os.listdir(set_dir) if f.endswith('.json')]
+    json_files.sort()
+
+    start = 0
+    count_json = len(json_files)
+
+    lat_VIO, lon_VIO = [], []
+    lat_GPS, lon_GPS = [], []
+    alt_VIO, alt_GPS = [], []
+
+# %%
+with nvtx.annotate("Initialize Error Collection", color="red"):
+    fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
+    lock = threading.Lock()
+
+# %%
+@nvtx.annotate("Register Error", color="red")
+def register_error(error_type, filename):
+    with lock:
+        fails_collect[error_type]['num'] += 1
+        fails_collect[error_type]['files'].append(filename)
+
+# %%
+@nvtx.annotate("Process File", color="blue")
+def process_file(filename):
+    with nvtx.annotate("Load JSON", color="cyan"):
+        try:
+            with open(os.path.join(set_dir, filename), 'r') as file:
+                data = json.load(file)
+        except json.JSONDecodeError:
+            register_error("JSON decode error", filename)
+            return
+        except Exception:
+            register_error("Processing error", filename)
+            return
+
+    with nvtx.annotate("Validate Data", color="magenta"):
+        if 'GNRMC' not in data or 'VIO' not in data:
+            register_error("Missing GNRMC or VIO", filename)
+            return
+        if data['GNRMC'].get('status') != 'A':
+            register_error("GNRMC status not 'A'", filename)
+            return
+
+    with nvtx.annotate("Load Image", color="yellow"):
+        img_path = os.path.join(set_dir, os.path.splitext(filename)[0] + '.jpg')
+        if not os.path.exists(img_path):
+            register_error("Image not found", filename)
+            return
+        image = cv2.imread(img_path)
+        if image is None:
+            register_error("Failed to load image", filename)
+            return
+
+    with nvtx.annotate("Process VIO", color="green"):
+        try:
+            result_vio = odometry.add_trace_pt(image, data)
+            if 'lat' not in result_vio or 'lon' not in result_vio:
+                register_error("VIO result missing 'lat' or 'lon'", filename)
+                return
+            with lock:
+                lat_VIO.append(result_vio['lat'])
+                lon_VIO.append(result_vio['lon'])
+                alt_VIO.append(data['VIO']['alt'])
+        except Exception as e:
+            register_error("VIO processing error", filename)
+            return
+
+    with nvtx.annotate("Process GPS", color="orange"):
+        try:
+            with lock:
+                lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+                alt_GPS.append(data['GPS_RAW_INT']['alt'])
+        except KeyError:
+            register_error("GPS data missing", filename)
+
+# %%
+@nvtx.annotate("Main Function Execution", color="darkviolet")
+def main():
+    workers = 6
+    with nvtx.annotate("ThreadPool Execution", color="purple"):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            executor.map(process_file, json_files[start:start + count_json])
+
+    with nvtx.annotate("Error Reporting", color="pink"):
+        print("\nError Report:")
+        for error_type, error_info in fails_collect.items():
+            print(f"{error_type} - {error_info['num']} occurrences")
+            print(f"Files: {', '.join(error_info['files'])}")
+            print()
+
+    with nvtx.annotate("Write Debug Points", color="gray"):
+        with open("Debugs/debug_points.txt", "w") as f:
+            for i in range(len(lat_GPS)):
+                f.write(f'Point num {i}\n')
+                f.write(f'{i} point GPS lat: {lat_GPS[i]}\n')
+                f.write(f'{i} point VIO lat: {lat_VIO[i]}\n')
+                f.write(f'{i} point GPS lon: {lon_GPS[i]}\n')
+                f.write(f'{i} point VIO lon: {lon_VIO[i]}\n')
+
+# %%
+with nvtx.annotate("Main Script Execution", color="darkgreen"):
+    main()
+
+# %%
+with nvtx.annotate("Coordinate Transformation", color="gold"):
+    gps_lat = lat_GPS.copy()
+    gps_lon = lon_GPS.copy()
+    vio_lat = lat_VIO.copy()
+    vio_lon = lon_VIO.copy()
+    gps_alt = alt_GPS.copy()
+    vio_alt = alt_VIO.copy()
+
+    gps_lon0, gps_lat0 = gps_lon[0], gps_lat[0]
+    vio_lon0, vio_lat0 = vio_lon[0], vio_lat[0]
+
+    mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
+    mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
+    mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
+    mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
+
+    scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff
+    scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff
+
+    transformation_params = {
+        "gps_lon0": gps_lon0,
+        "gps_lat0": gps_lat0,
+        "vio_lon0": vio_lon0,
+        "vio_lat0": vio_lat0,
+        "scale_for_lon": scale_for_lon,
+        "scale_for_lat": scale_for_lat
+    }
+
+    with open("Debugs/transformation_params.json", "w") as f:
+        json.dump(transformation_params, f, indent=4)
+
+# Остальные шаги (визуализация и анимация) остаются без изменений.

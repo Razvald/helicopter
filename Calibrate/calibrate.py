@@ -11,42 +11,30 @@ from collections import defaultdict
 import plotly.graph_objects as go
 
 # %%
-odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+with nvtx.annotate("Initialize VIO and Parameters", color="blue"):
+    odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 
-# Путь к папке
-set_dir = '2024_12_15_15_31_8_num_3'
+    set_dir = '2024_12_15_15_31_8_num_3'
 
-# Получение всех файлов с расширением .json
-json_files = [f for f in os.listdir(set_dir) if f.endswith('.json')]
+    json_files = [f for f in os.listdir(set_dir) if f.endswith('.json')]
+    json_files.sort()
 
-# Сортировка файлов по имени
-json_files.sort()
+    start = 0
+    count_json = len(json_files)
 
-start = 0
-count_json = len(json_files)
-
-lat_VIO = []
-lon_VIO = []
-
-lat_GPS = []
-lon_GPS = []
-
-alt_VIO = []
-alt_GPS = []
+    lat_VIO, lon_VIO = [], []
+    lat_GPS, lon_GPS = [], []
+    alt_VIO, alt_GPS = [], []
 
 # %%
-# Инициализация структуры для ошибок
-fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
-
-# %%
-lock = threading.Lock()
+with nvtx.annotate("Initialize Error Collection", color="red"):
+    fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
+    lock = threading.Lock()
 
 # %%
 @nvtx.annotate("Register Error", color="red")
 def register_error(error_type, filename):
     with lock:
-        if error_type not in fails_collect:
-            fails_collect[error_type] = {'num': 0, 'files': []}
         fails_collect[error_type]['num'] += 1
         fails_collect[error_type]['files'].append(filename)
 
@@ -68,7 +56,6 @@ def process_file(filename):
         if 'GNRMC' not in data or 'VIO' not in data:
             register_error("Missing GNRMC or VIO", filename)
             return
-
         if data['GNRMC'].get('status') != 'A':
             register_error("GNRMC status not 'A'", filename)
             return
@@ -78,19 +65,17 @@ def process_file(filename):
         if not os.path.exists(img_path):
             register_error("Image not found", filename)
             return
-
         image = cv2.imread(img_path)
         if image is None:
             register_error("Failed to load image", filename)
             return
-        
+
     with nvtx.annotate("Process VIO", color="green"):
         try:
             result_vio = odometry.add_trace_pt(image, data)
             if 'lat' not in result_vio or 'lon' not in result_vio:
                 register_error("VIO result missing 'lat' or 'lon'", filename)
                 return
-
             with lock:
                 lat_VIO.append(result_vio['lat'])
                 lon_VIO.append(result_vio['lon'])
@@ -108,89 +93,65 @@ def process_file(filename):
         except KeyError:
             register_error("GPS data missing", filename)
 
-# %% [markdown]
-# Путем перебора наибольшая выгода при 6 потоках
-
 # %%
+@nvtx.annotate("Main Function Execution", color="darkviolet")
 def main():
-  workers = 6
-  with nvtx.annotate("ThreadPool Execution", color="purple"):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-      executor.map(process_file, json_files[start:start + count_json])
-  
-  # Вывод отчетности
-  with nvtx.annotate("Report Errors", color="pink"):
-    print("\nError Report:")
-    for error_type, error_info in fails_collect.items():
-      print(f"{error_type} - {error_info['num']} occurrences")
-      print(f"Files: {', '.join(error_info['files'])}")
-      print()
-  
-  with nvtx.annotate("Write Debug Points", color="gray"):
-    with open("Debugs/debug_points.txt", "w") as f:
-      f.write("")
-      for i in range(len(lat_GPS)):
-        f.write(f'Point num {i}\n')
-        f.write(f'{i} point GPS lat: {lat_GPS[i]}\n')
-        f.write(f'{i} point VIO lat: {lat_VIO[i]}\n')
-        f.write(f'{i} point GPS lon: {lon_GPS[i]}\n')
-        f.write(f'{i} point VIO lon: {lon_VIO[i]}\n')
+    workers = 6
+    with nvtx.annotate("ThreadPool Execution", color="purple"):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            executor.map(process_file, json_files[start:start + count_json])
+
+    with nvtx.annotate("Error Reporting", color="pink"):
+        print("\nError Report:")
+        for error_type, error_info in fails_collect.items():
+            print(f"{error_type} - {error_info['num']} occurrences")
+            print(f"Files: {', '.join(error_info['files'])}")
+            print()
+
+    with nvtx.annotate("Write Debug Points", color="gray"):
+        with open("Debugs/debug_points.txt", "w") as f:
+            for i in range(len(lat_GPS)):
+                f.write(f'Point num {i}\n')
+                f.write(f'{i} point GPS lat: {lat_GPS[i]}\n')
+                f.write(f'{i} point VIO lat: {lat_VIO[i]}\n')
+                f.write(f'{i} point GPS lon: {lon_GPS[i]}\n')
+                f.write(f'{i} point VIO lon: {lon_VIO[i]}\n')
 
 # %%
-with nvtx.annotate("Main Function", color="darkviolet"):
+with nvtx.annotate("Main Script Execution", color="darkgreen"):
     main()
 
 # %%
-print(len(lat_GPS))
-print(len(lat_VIO))
+with nvtx.annotate("Coordinate Transformation", color="gold"):
+    gps_lat = lat_GPS.copy()
+    gps_lon = lon_GPS.copy()
+    vio_lat = lat_VIO.copy()
+    vio_lon = lon_VIO.copy()
+    gps_alt = alt_GPS.copy()
+    vio_alt = alt_VIO.copy()
 
-# %%
-# Шаг 1. Загрузка координат
-gps_lat = lat_GPS.copy()
-gps_lon = lon_GPS.copy()
-vio_lat = lat_VIO.copy()
-vio_lon = lon_VIO.copy()
-gps_alt = alt_GPS.copy()
-vio_alt = alt_VIO.copy()
+    gps_lon0, gps_lat0 = gps_lon[0], gps_lat[0]
+    vio_lon0, vio_lat0 = vio_lon[0], vio_lat[0]
 
-# %%
-# Шаг 2. Сохраняем начальные точки (они должны совпадать)
-gps_lon0 = gps_lon[0]
-gps_lat0 = gps_lat[0]
-vio_lon0 = vio_lon[0]
-vio_lat0 = vio_lat[0]
+    mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
+    mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
+    mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
+    mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
 
-# %%
-# Шаг 3. Вычисляем средние изменения (дельты) для последовательностей координат
-mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
-mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
+    scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff
+    scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff
 
-mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
-mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
+    transformation_params = {
+        "gps_lon0": gps_lon0,
+        "gps_lat0": gps_lat0,
+        "vio_lon0": vio_lon0,
+        "vio_lat0": vio_lat0,
+        "scale_for_lon": scale_for_lon,
+        "scale_for_lat": scale_for_lat
+    }
 
-
-# %%
-# Шаг 4. Вычисляем масштабные коэффициенты
-# Здесь предположено, что оси VIO перепутаны:
-# - GPS долгота (горизонталь) соответствует VIO "широте" (vio_lat)
-# - GPS широта (вертикаль) соответствует VIO "долготе" (vio_lon)
-scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff  # Для преобразования VIO широты -> GPS долгота
-scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff  # Для преобразования VIO долготы -> GPS широта
-
-
-# %%
-# Шаг 5. Сохраняем параметры трансформации в JSON
-transformation_params = {
-    "gps_lon0": gps_lon0,
-    "gps_lat0": gps_lat0,
-    "vio_lon0": vio_lon0,
-    "vio_lat0": vio_lat0,
-    "scale_for_lon": scale_for_lon,
-    "scale_for_lat": scale_for_lat
-}
-
-with open("transformation_params.json", "w") as f:
-    json.dump(transformation_params, f, indent=4)
+    with open("Debugs/transformation_params.json", "w") as f:
+        json.dump(transformation_params, f, indent=4)
 
 # %%
 # Шаг 6. Определяем функцию для преобразования VIO координат с использованием сохранённых параметров
