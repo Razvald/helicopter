@@ -1,156 +1,56 @@
-# %%
-import nvtx
-import vio_ort
-import matplotlib.pyplot as plt
-import os
-import json
-import cv2
-import concurrent.futures
-import threading
-from collections import defaultdict
-import plotly.graph_objects as go
-
-# %%
-with nvtx.annotate("Initialize VIO and Parameters", color="blue"):
-    odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
-
-    set_dir = '2024_12_15_15_31_8_num_3'
-
-    json_files = [f for f in os.listdir(set_dir) if f.endswith('.json')]
-    json_files.sort()
-
-    start = 0
-    count_json = len(json_files)
-
-    lat_VIO, lon_VIO = [], []
-    lat_GPS, lon_GPS = [], []
-    alt_VIO, alt_GPS = [], []
-
-# %%
-with nvtx.annotate("Initialize Error Collection", color="red"):
-    fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
-    lock = threading.Lock()
-
-# %%
-@nvtx.annotate("Register Error", color="red")
-def register_error(error_type, filename):
-    with lock:
-        fails_collect[error_type]['num'] += 1
-        fails_collect[error_type]['files'].append(filename)
-
-# %%
-@nvtx.annotate("Process File", color="blue")
-def process_file(filename):
-    with nvtx.annotate("Load JSON", color="cyan"):
-        try:
-            with open(os.path.join(set_dir, filename), 'r') as file:
-                data = json.load(file)
-        except json.JSONDecodeError:
-            register_error("JSON decode error", filename)
-            return
-        except Exception:
-            register_error("Processing error", filename)
-            return
-
-    with nvtx.annotate("Validate Data", color="magenta"):
-        if 'GNRMC' not in data or 'VIO' not in data:
-            register_error("Missing GNRMC or VIO", filename)
-            return
-        if data['GNRMC'].get('status') != 'A':
-            register_error("GNRMC status not 'A'", filename)
-            return
-
-    with nvtx.annotate("Load Image", color="yellow"):
-        img_path = os.path.join(set_dir, os.path.splitext(filename)[0] + '.jpg')
-        if not os.path.exists(img_path):
-            register_error("Image not found", filename)
-            return
-        image = cv2.imread(img_path)
-        if image is None:
-            register_error("Failed to load image", filename)
-            return
-
-    with nvtx.annotate("Process VIO", color="green"):
-        try:
-            result_vio = odometry.add_trace_pt(image, data)
-            if 'lat' not in result_vio or 'lon' not in result_vio:
-                register_error("VIO result missing 'lat' or 'lon'", filename)
-                return
-            with lock:
-                lat_VIO.append(result_vio['lat'])
-                lon_VIO.append(result_vio['lon'])
-                alt_VIO.append(data['VIO']['alt'])
-        except Exception as e:
-            register_error("VIO processing error", filename)
-            return
-
-    with nvtx.annotate("Process GPS", color="orange"):
-        try:
-            with lock:
-                lat_GPS.append(data['GNRMC'].get('lat', 0.0))
-                lon_GPS.append(data['GNRMC'].get('lon', 0.0))
-                alt_GPS.append(data['GPS_RAW_INT']['alt'])
-        except KeyError:
-            register_error("GPS data missing", filename)
-
-# %%
-@nvtx.annotate("Main Function Execution", color="darkviolet")
-def main():
-    workers = 6
-    with nvtx.annotate("ThreadPool Execution", color="purple"):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            executor.map(process_file, json_files[start:start + count_json])
-
-    with nvtx.annotate("Error Reporting", color="pink"):
-        print("\nError Report:")
-        for error_type, error_info in fails_collect.items():
-            print(f"{error_type} - {error_info['num']} occurrences")
-            print(f"Files: {', '.join(error_info['files'])}")
-            print()
-
-    with nvtx.annotate("Write Debug Points", color="gray"):
-        with open("Debugs/debug_points.txt", "w") as f:
-            for i in range(len(lat_GPS)):
-                f.write(f'Point num {i}\n')
-                f.write(f'{i} point GPS lat: {lat_GPS[i]}\n')
-                f.write(f'{i} point VIO lat: {lat_VIO[i]}\n')
-                f.write(f'{i} point GPS lon: {lon_GPS[i]}\n')
-                f.write(f'{i} point VIO lon: {lon_VIO[i]}\n')
-
-# %%
-with nvtx.annotate("Main Script Execution", color="darkgreen"):
-    main()
-
-# %%
-with nvtx.annotate("Coordinate Transformation", color="gold"):
-    gps_lat = lat_GPS.copy()
-    gps_lon = lon_GPS.copy()
-    vio_lat = lat_VIO.copy()
-    vio_lon = lon_VIO.copy()
-    gps_alt = alt_GPS.copy()
-    vio_alt = alt_VIO.copy()
-
-    gps_lon0, gps_lat0 = gps_lon[0], gps_lat[0]
-    vio_lon0, vio_lat0 = vio_lon[0], vio_lat[0]
-
-    mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
-    mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
-    mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
-    mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
-
-    scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff
-    scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff
-
-    transformation_params = {
-        "gps_lon0": gps_lon0,
-        "gps_lat0": gps_lat0,
-        "vio_lon0": vio_lon0,
-        "vio_lat0": vio_lat0,
-        "scale_for_lon": scale_for_lon,
-        "scale_for_lat": scale_for_lat
-    }
-
-    with open("Debugs/transformation_params.json", "w") as f:
-        json.dump(transformation_params, f, indent=4)
-
-# Остальные шаги (визуализация и анимация) остаются без изменений.
+Directory structure:
+└── razvald-helicopter.git/
+    ├── README.md
+    ├── trashHolder.txt
+    ├── Объяснение всего кода.md
+    └── Calibrate/
+        ├── calibrate.ipynb
+        ├── calibrate.py
+        ├── fisheye_2024-09-18.json
+        ├── net.onnx
+        ├── vio_ort.py
+        ├── 2024_12_15_15_31_8_num_3/
+        │   └── 1734247868001.json
+        ├── Debugs/
+        │   ├── debug_output.txt
+        │   ├── debug_points.txt
+        │   ├── debug_points_json.txt
+        │   ├── transformation_params.json
+        │   └── vio_gps_constants.json
+        ├── Profiling/
+        │   ├── prof.sh
+        │   ├── Запуск.txt
+        │   └── Reports/
+        │       ├── report_2025-02-11_11-51-07.nsys-rep
+        │       ├── report_2025-02-11_14-10-41.nsys-rep
+        │       ├── report_2025-02-11_14-31-47.nsys-rep
+        │       ├── report_2025-02-11_14-39-57.nsys-rep
+        │       └── report_2025-02-11_14-51-33.nsys-rep
+        └── modules/
+            ├── __init__.py
+            ├── interpolator.py
+            ├── lighterglue.py
+            ├── model.py
+            ├── xfeat.py
+            ├── xfeat_ort.py
+            ├── dataset/
+            │   ├── __init__.py
+            │   ├── augmentation.py
+            │   └── megadepth/
+            │       ├── __init__.py
+            │       ├── megadepth.py
+            │       ├── megadepth_warper.py
+            │       └── utils.py
+            ├── training/
+            │   ├── __init__.py
+            │   ├── losses.py
+            │   ├── train.py
+            │   └── utils.py
+            ├── weights/
+            │   ├── XFeat.rknn
+            │   ├── xfeat-lighterglue.pt
+            │   └── xfeat.pt
+            └── .ipynb_checkpoints/
+                ├── model-checkpoint.py
+                ├── xfeat-checkpoint.py
+                └── xfeat_ort-checkpoint.py
