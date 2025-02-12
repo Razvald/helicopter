@@ -75,4 +75,4 @@
 
 - [VIO обработка: `vio_ort.py`](./Calibrate/vio_ort.py)
 - [Калибровка камеры: `calibrate.ipynb`](./Calibrate/calibrate.ipynb)
-- [Подробное объяснение кода](./Объяснение%20всего%20кода.md)
+- [Подробное объяснение кода](./Code.md)
