@@ -1,4 +1,3 @@
-```markdown
 # Razvald Helicopter Project
 
 ## Описание проекта
