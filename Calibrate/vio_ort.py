@@ -60,15 +60,15 @@ class VIO():
         
         # Получаем углы и высоту – можно обернуть в отдельный NVTX-блок
         
-        with nvtx.annotate("Fetch Angles & Height", color="green"):
+        with nvtx.annotate("VIO.add_trace_pt.Fetch Angles & Height", color="green"):
             angles = fetch_angles(msg)
             height = fetch_height(msg)
             timestamp = time()
         
-        with nvtx.annotate("Preprocess Frame", color="yellow"):
+        with nvtx.annotate("VIO.add_trace_pt.Preprocess Frame", color="yellow"):
             frame = preprocess_frame(frame, MASK)
 
-        with nvtx.annotate("Rotate Image", color="orange"):
+        with nvtx.annotate("VIO.add_trace_pt.Rotate Image", color="orange"):
             roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
             dpp = (int(CENTER[0] + roll * 2.5),
                    int(CENTER[1] + pitch * 2.5))
@@ -76,12 +76,12 @@ class VIO():
             rotated = np.asarray(rotated)
 
         # Здесь можно добавить аннотацию для remapping и дальнейшей обработки
-        with nvtx.annotate("Remap and Crop", color="cyan"):
+        with nvtx.annotate("VIO.add_trace_pt.Remap and Crop", color="cyan"):
             map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
             crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         
         # Далее обработка трассы, расчёт позиции и т.д.
-        with nvtx.annotate("Detect and compute", color="red"):
+        with nvtx.annotate("VIO.add_trace_pt.Detect and compute", color="red"):
             trace_pt = dict(crop=crop,
                             out=self.detect_and_compute(crop),
                             angles=angles,
@@ -91,7 +91,7 @@ class VIO():
             self.trace = self.trace[1:]
 
         # Например, аннотировать расчёт локальной позиции:
-        with nvtx.annotate("Calculate Local Position", color="magenta"):
+        with nvtx.annotate("VIO.add_trace_pt.Calculate Local Position", color="magenta"):
             if len(self.trace) == 0:
                 trace_pt['local_posm'] = np.asarray([0, 0])
             else:
@@ -105,7 +105,7 @@ class VIO():
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
         # Пример расчёта скорости
-        with nvtx.annotate("Fit Velocity", color="darkorange"):
+        with nvtx.annotate("VIO.add_trace_pt.Fit Velocity", color="darkorange"):
             ts, tn, te, he = np.asarray(self.track[-TRACE_DEPTH:]).T
             if len(tn) >= TRACE_DEPTH:
                 vn = np.polyfit(ts, tn, 1)[0]
@@ -177,36 +177,6 @@ class VIO():
         out = self._matcher.detectAndCompute(img)[0]
         return out
 
-    def vio2pixhawk(self, msg):
-
-        viom = msg['VIO']
-        
-        return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
-                0, # GPS sensor id in th, e case of multiple GPS
-                FLAGS, # flags to ignore 8, 16, 32 etc
-                # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-                
-                viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
-                viom['GPS_week'], # GPS week number
-                3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
-                int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
-                int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
-                viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
-                1.0, # GPS HDOP horizontal dilution of precision in m
-                1.0, # GPS VDOP vertical dilution of precision in m
-                viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
-                viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
-                viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
-                0.6, # GPS speed accuracy in m/s
-                5.0, # GPS horizontal accuracy in m
-                3.0, # GPS vertical accuracy in m
-                10, # Number of satellites visible,
-                ]
-
 def calc_GPS_week_time():
     today = date.today()
     now = datetime.now()
@@ -226,25 +196,6 @@ def fetch_angles(msg):
 
 def fetch_height(msg):
     return max(0, msg['AHRS2']['altitude'])
-        
-def extract_neighborhood(image, keypoint, size):
-    x, y = keypoint
-    half_size = size // 2
-    
-    x_start = x - half_size
-    x_end = x + half_size
-    y_start = y - half_size
-    y_end = y + half_size
-    # Reject keypoints too close to boundaries
-    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
-        return None
-        
-    nbh = image[y_start:y_end, x_start:x_end]
-    # Reject keypoints  with mask pixels
-    if np.any(nbh==0):
-        return None
-    else:
-        return nbh
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     # Create a grid for the rectilinear image
