@@ -28,7 +28,7 @@ fi
 
 # Запуск профилирования
 echo "Профилирование файла: $SCRIPT_PATH"
-nsys profile -o report_temp python3 "$SCRIPT_PATH"
+nsys profile -t nvtx,osrt --force-overwrite=true --duration=10 --trace-fork-before-exec=true --stats=true --output=report_temp python3 "$SCRIPT_PATH"
 
 # Поиск последнего созданного файла с расширением .nsys-rep
 LATEST_REPORT=$(find . -type f -name "report_temp*.nsys-rep" -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2-)

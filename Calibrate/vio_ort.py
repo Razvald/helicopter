@@ -10,6 +10,8 @@ from modules.xfeat_ort import XFeat
 
 from pymavlink import mavutil
 
+from collections import deque
+
 import nvtx
 
 
@@ -51,15 +53,12 @@ class VIO():
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
         self.track = []
-        self.trace = []
+        self.trace = deque(maxlen=TRACE_DEPTH)  # Ограничиваем длину автоматически
         self.prev = None
         self.HoM = None
         
     @nvtx.annotate("VIO.add_trace_pt", color="blue")
     def add_trace_pt(self, frame, msg):
-        
-        # Получаем углы и высоту – можно обернуть в отдельный NVTX-блок
-        
         with nvtx.annotate("VIO.add_trace_pt.Fetch Angles & Height", color="green"):
             angles = fetch_angles(msg)
             height = fetch_height(msg)
@@ -75,22 +74,16 @@ class VIO():
             rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
             rotated = np.asarray(rotated)
 
-        # Здесь можно добавить аннотацию для remapping и дальнейшей обработки
         with nvtx.annotate("VIO.add_trace_pt.Remap and Crop", color="cyan"):
             map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
             crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         
-        # Далее обработка трассы, расчёт позиции и т.д.
         with nvtx.annotate("VIO.add_trace_pt.Detect and compute", color="red"):
             trace_pt = dict(crop=crop,
                             out=self.detect_and_compute(crop),
                             angles=angles,
                             height=height)
         
-        if len(self.trace)>TRACE_DEPTH:
-            self.trace = self.trace[1:]
-
-        # Например, аннотировать расчёт локальной позиции:
         with nvtx.annotate("VIO.add_trace_pt.Calculate Local Position", color="magenta"):
             if len(self.trace) == 0:
                 trace_pt['local_posm'] = np.asarray([0, 0])
@@ -104,7 +97,6 @@ class VIO():
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
-        # Пример расчёта скорости
         with nvtx.annotate("VIO.add_trace_pt.Fit Velocity", color="darkorange"):
             ts, tn, te, he = np.asarray(self.track[-TRACE_DEPTH:]).T
             if len(tn) >= TRACE_DEPTH:
