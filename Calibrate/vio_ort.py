@@ -54,9 +54,9 @@ class VIO():
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
         self.track = []
         self.trace = []
+        #self.trace = deque(maxlen=TRACE_DEPTH)  # Ограничиваем длину автоматически, И ВМЕСТО 3300 КООРДИНАТ СОХРАНЯЕТСЯ ОКОЛО 800 ИЗ-ЗА ОШИБКИ В ОБРАБОТКЕ
         self.prev = None
         self.HoM = None
-        self.match_cache = {}  # Кэш для сопоставления точек
         
     def add_trace_pt(self, frame, msg):
         range_id_method = nvtx.start_range("VIO.add_trace_pt", color="blue")
@@ -92,7 +92,7 @@ class VIO():
         )
         nvtx.end_range(range_id_detect)
         
-        if len(self.trace) > TRACE_DEPTH:
+        if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
         
         range_id_calc = nvtx.start_range("VIO.add_trace_pt.Calculate Local Position", color="magenta")
@@ -166,10 +166,6 @@ class VIO():
             return None
     
     def match_points_hom(self, out0, out1):
-        key = (id(out0), id(out1))
-        if key in self.match_cache:
-            return self.match_cache[key]
-        
         range_id_match = nvtx.start_range("VIO.match_points_hom", color="blue")
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
         mkpts_0 = out0['keypoints'][idxs0].numpy()
@@ -182,11 +178,9 @@ class VIO():
             good_prev = mkpts_0[mask]
             good_next = mkpts_1[mask]
             result = (good_prev, good_next, HoM)
-            self.match_cache[key] = result
             return result
         else:
             result = ([], [], np.eye(3))
-            self.match_cache[key] = result
             return result
 
     def detect_and_compute(self, frame):
