@@ -25,6 +25,7 @@ for shape in camparam['shapes']:
         cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
         cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
         nvtx.end_range(range_id_mask)
+nvtx.end_range(range_id_load)
 
 range_id_constants = nvtx.start_range("Initialize Camera Constants", color="brown")
 CENTER = [camparam['ppx'], camparam['ppy']]
@@ -34,7 +35,6 @@ FOCAL = camparam['focal']
 RAD = camparam['radius']
 CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
 nvtx.end_range(range_id_constants)
-nvtx.end_range(range_id_load)
 
 # Константы
 HOMO_THR = 2.0
@@ -54,7 +54,6 @@ class VIO():
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
         self.track = []
         self.trace = []
-        #self.trace = deque(maxlen=TRACE_DEPTH)  # Ограничиваем длину автоматически, И ВМЕСТО 3300 КООРДИНАТ СОХРАНЯЕТСЯ ОКОЛО 800 ИЗ-ЗА ОШИБКИ В ОБРАБОТКЕ
         self.prev = None
         self.HoM = None
         
