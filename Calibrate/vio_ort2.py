@@ -151,26 +151,6 @@ class VIO():
             end_range(range_id_center)
 
         return np.mean(poses, axis=0) if poses else None
-    
-    def calc_pos(self, next_pt):
-        poses = []
-        cached_matrices = {}  # Кэш для Homography
-        for prev_pt in self.trace:
-            range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
-            end_range(range_id_match)
-            
-            if len(match_prev) <= NUM_MATCH_THR:
-                continue
-            
-            range_id_center = start_range("VIO.calc_pos.Center Projection", color="black")
-            if HoM not in cached_matrices:
-                cached_matrices[HoM] = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM)
-            
-            metric_shift = (CROP_CENTER - cached_matrices[HoM].ravel())[::-1] / FOCAL * np.mean([prev_pt['height'], next_pt['height']])
-            poses.append(prev_pt['local_posm'] + metric_shift)
-            end_range(range_id_center)
-        return np.mean(poses, axis=0) if poses else None
 
     # Работает 4 раза за цикл
     def match_points_hom(self, out0, out1):
