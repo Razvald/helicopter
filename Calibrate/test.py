@@ -241,7 +241,7 @@ with nvtx.annotate("Math coords", color="black"):
 
 # %%
 with nvtx.annotate("Draw Function", color="darkviolet"):
- draw_graph()
+    draw_graph()
 
 # %%
 with nvtx.annotate("Math coords", color="black"):
@@ -370,5 +370,3 @@ with nvtx.annotate("Draw Function", color="darkviolet"):
 # %%
 print(len(lat_GPS))
 print(len(lat_VIO))
-
-

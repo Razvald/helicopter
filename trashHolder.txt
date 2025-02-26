@@ -1,10 +1,1110 @@
+test.py
+
+# %%
+    import nvtx
+    import matplotlib.pyplot as plt
+    import os
+    import json
+    import cv2
+    import concurrent.futures
+    import threading
+    from collections import defaultdict
+    # %%
+    import vio_ort2 as vio_ort
+
+    # %%
+    # Инициализация глобальных параметров
+    with nvtx.annotate("Init: Global VIO & Params", color="dodgerblue"):
+        odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+        set_dir = '2024_12_15_15_31_8_num_3'
+        json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
+        start = 1000
+        count_json = 1000
+        lat_VIO, lon_VIO = [], []
+        lat_GPS, lon_GPS = [], []
+        alt_VIO, alt_GPS = [], []
+
+    # %%
+    with nvtx.annotate("Init: Error Collection", color="red"):
+            fails_collect = defaultdict(lambda: {'num': 0, 'files': []})
+            lock = threading.Lock()
+
+    # %%
+    @nvtx.annotate("Error: Register", color="red")
+    def register_error(error_type, filename):
+            with lock:
+                    fails_collect[error_type]['num'] += 1
+                    fails_collect[error_type]['files'].append(filename)
+
+    # %%
+    @nvtx.annotate("File: Processing", color="blue")
+    def process_file(filename):
+        with nvtx.annotate("JSON: Load", color="cyan"):
+            try:
+                with open(os.path.join(set_dir, filename), 'r') as file:
+                    data = json.load(file)
+            except json.JSONDecodeError:
+                register_error("JSON decode error", filename)
+                return
+            except Exception:
+                register_error("Processing error", filename)
+                return
+
+        with nvtx.annotate("Data: Validate", color="magenta"):
+            if 'GNRMC' not in data or 'VIO' not in data:
+                register_error("Missing GNRMC or VIO", filename)
+                return
+            if data['GNRMC'].get('status') != 'A':
+                register_error("GNRMC status not 'A'", filename)
+                return
+
+        with nvtx.annotate("Image: Load", color="yellow"):
+            img_path = os.path.join(set_dir, os.path.splitext(filename)[0] + '.jpg')
+            if not os.path.exists(img_path):
+                register_error("Image not found", filename)
+                return
+            image = cv2.imread(img_path)
+            if image is None:
+                register_error("Failed to load image", filename)
+                return
+
+        with nvtx.annotate("VIO: Process", color="green"):
+            try:
+                result_vio = odometry.add_trace_pt(image, data)
+                if 'lat' not in result_vio or 'lon' not in result_vio:
+                    register_error("VIO result missing 'lat' or 'lon'", filename)
+                    return
+                with lock:
+                    lat_VIO.append(result_vio['lat'])
+                    lon_VIO.append(result_vio['lon'])
+                    alt_VIO.append(data['VIO']['alt'])
+            except Exception as e:
+                register_error("VIO processing error", filename)
+                return
+
+        with nvtx.annotate("GPS: Process", color="orange"):
+            try:
+                with lock:
+                    lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                    lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+                    alt_GPS.append(data['GPS_RAW_INT']['alt'])
+            except KeyError:
+                register_error("GPS data missing", filename)
+
+    # %% [markdown]
+    # Путем перебора наибольшая выгода при 6 потоках
+
+    # %%
+    def main():
+        workers = 6
+        with nvtx.annotate("ThreadPool: Execute", color="purple"):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                executor.map(process_file, json_files[start:start + count_json])
+
+        # Вывод отчетности
+        with nvtx.annotate("Report Errors", color="pink"):
+            print("\nError Report:")
+            for error_type, error_info in fails_collect.items():
+                print(f"{error_type} - {error_info['num']} occurrences")
+                print(f"Files: {', '.join(error_info['files'])}")
+                print()
+
+    # %%
+    with nvtx.annotate("Main: Execute", color="darkviolet"):
+        main()
+
+    # %%
+    with nvtx.annotate("Math coords", color="black"):
+        def draw_graph():
+            # Шаг 1. Загрузка координат
+            gps_lat = lat_GPS.copy()
+            gps_lon = lon_GPS.copy()
+            vio_lat = lat_VIO.copy()
+            vio_lon = lon_VIO.copy()
+            gps_alt = alt_GPS.copy()
+            vio_alt = alt_VIO.copy()
+
+            # Шаг 2. Сохраняем начальные точки (они должны совпадать)
+            gps_lon0 = gps_lon[0]
+            gps_lat0 = gps_lat[0]
+            vio_lon0 = vio_lon[0]
+            vio_lat0 = vio_lat[0]
+
+            # Шаг 3. Вычисляем средние изменения (дельты) для последовательностей координат
+            mean_gps_lon_diff = sum(abs(gps_lon[i + 1] - gps_lon[i]) for i in range(len(gps_lon) - 1)) / (len(gps_lon) - 1)
+            mean_gps_lat_diff = sum(abs(gps_lat[i + 1] - gps_lat[i]) for i in range(len(gps_lat) - 1)) / (len(gps_lat) - 1)
+
+            mean_vio_lon_diff = sum(abs(vio_lon[i + 1] - vio_lon[i]) for i in range(len(vio_lon) - 1)) / (len(vio_lon) - 1)
+            mean_vio_lat_diff = sum(abs(vio_lat[i + 1] - vio_lat[i]) for i in range(len(vio_lat) - 1)) / (len(vio_lat) - 1)
+
+            # Шаг 4. Вычисляем масштабные коэффициенты
+            # Здесь предположено, что оси VIO перепутаны:
+            # - GPS долгота (горизонталь) соответствует VIO "широте" (vio_lat)
+            # - GPS широта (вертикаль) соответствует VIO "долготе" (vio_lon)
+            scale_for_lon = mean_gps_lon_diff / mean_vio_lat_diff  # Для преобразования VIO широты -> GPS долгота
+            scale_for_lat = mean_gps_lat_diff / mean_vio_lon_diff  # Для преобразования VIO долготы -> GPS широта
+
+            # Шаг 5. Сохраняем параметры трансформации в JSON
+            transformation_params = {
+                    "gps_lon0": gps_lon0,
+                    "gps_lat0": gps_lat0,
+                    "vio_lon0": vio_lon0,
+                    "vio_lat0": vio_lat0,
+                    "scale_for_lon": scale_for_lon,
+                    "scale_for_lat": scale_for_lat
+            }
+
+            with open("Debugs/transformation_params.json", "w") as f:
+                json.dump(transformation_params, f, indent=4)
+
+            # Шаг 6. Определяем функцию для преобразования VIO координат с использованием сохранённых параметров
+            def transform_vio_coords(vio_lon_list, vio_lat_list, params):
+                """
+                Преобразование координат VIO по сохранённым параметрам.
+                Аргументы:
+                    vio_lon_list: список VIO долготы (будет использоваться для расчёта GPS широты)
+                    vio_lat_list: список VIO широты (будет использоваться для расчёта GPS долготы)
+                    params: словарь с параметрами трансформации
+                Возвращает:
+                    transformed_lon: список преобразованных GPS долготы
+                    transformed_lat: список преобразованных GPS широты
+                    """
+                gps_lon0 = params["gps_lon0"]
+                gps_lat0 = params["gps_lat0"]
+                vio_lon0 = params["vio_lon0"]
+                vio_lat0 = params["vio_lat0"]
+                scale_for_lon = params["scale_for_lon"]
+                scale_for_lat = params["scale_for_lat"]
+
+                # Преобразование:
+                # Для GPS долготы используем VIO широту, сдвигаем и масштабируем:
+                transformed_lon = [(v_lat - vio_lat0) * scale_for_lon + gps_lon0 for v_lat in vio_lat_list]
+                # Для GPS широты используем VIO долготу, но с инверсией (так как ось перевёрнута):
+                transformed_lat = [-(v_lon - vio_lon0) * scale_for_lat + gps_lat0 for v_lon in vio_lon_list]
+                return transformed_lon, transformed_lat
+
+            # Применяем трансформацию к имеющимся данным (для демонстрации)
+            vio_lon_transformed, vio_lat_transformed = transform_vio_coords(vio_lon, vio_lat, transformation_params)
+
+            # Преобразуем высоту VIO в метры (делим на 10, так как в VIO высота в дециметрах)
+            vio_alt_meters = [v_alt * 1000 for v_alt in vio_alt]
+
+            with nvtx.annotate("3D Graph", color="red"):
+                # Создаем несколько графиков с разными углами обзора
+                fig = plt.figure(figsize=(18, 14))
+
+                # Первый график — угол 30 по вертикали и 60 по горизонтали
+                ax1 = fig.add_subplot(231, projection='3d')
+                ax1.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax1.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax1.set_xlabel('Долгота', fontsize=10)  # Уменьшаем размер шрифта
+                ax1.set_ylabel('Широта', fontsize=10)
+                ax1.set_title('Вид 1: 90° по вертикали, -90° по горизонтали', fontsize=12)
+                ax1.view_init(elev=90, azim=-90)
+                ax1.legend()
+                ax1.tick_params(axis='both', which='major', labelsize=8)  # Уменьшаем размер меток осей
+
+                # Второй график — угол 45 по вертикали и 90 по горизонтали
+                ax2 = fig.add_subplot(232, projection='3d')
+                ax2.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax2.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax2.set_xlabel('Долгота', fontsize=10)
+                ax2.set_zlabel('Высота (метры)', fontsize=10)
+                ax2.set_title('Вид 2: 0° по вертикали, 90° по горизонтали', fontsize=12)
+                ax2.view_init(elev=0, azim=-90)
+                ax2.legend()
+                ax2.tick_params(axis='both', which='major', labelsize=8)
+
+                # Третий график — угол 60 по вертикали и 180 по горизонтали
+                ax3 = fig.add_subplot(233, projection='3d')
+                ax3.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax3.plot(vio_lon_transformed, vio_lat_transformed, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax3.set_xlabel('Долгота', fontsize=10)
+                ax3.set_ylabel('Широта', fontsize=10)
+                ax3.set_zlabel('Высота (метры)', fontsize=10)
+                ax3.set_title('Вид 3: 60° по вертикали, 180° по горизонтали', fontsize=12)
+                ax3.view_init(elev=60, azim=180)
+                ax3.legend()
+                ax3.tick_params(axis='both', which='major', labelsize=8)
+
+                # Автоматически подгоняем графики по размеру
+                plt.tight_layout()
+
+                # Скрываем метки оси
+                ax1.set_zticks([])
+                ax1.set_zticklabels([])
+
+                # Скрываем метки оси
+                ax2.set_yticks([])
+                ax2.set_yticklabels([])
+
+                # Показать графики
+                plt.show()
+
+    # %%
+    with nvtx.annotate("Draw Function", color="darkviolet"):
+        draw_graph()
+
+    # %%
+    with nvtx.annotate("Math coords", color="black"):
+        def draw_graph2():
+            gps_lat = lat_GPS.copy()
+            gps_lon = lon_GPS.copy()
+            vio_lat = lat_VIO.copy()
+            vio_lon = lon_VIO.copy()
+            gps_alt = alt_GPS.copy()
+            vio_alt = alt_VIO.copy()
+
+            gps_lon0 = gps_lon[0]
+            gps_lat0 = gps_lat[0]
+            vio_lon0 = vio_lon[0]
+            vio_lat0 = vio_lat[0]
+
+            gps_lon_range = max(gps_lon) - min(gps_lon)
+            gps_lat_range = max(gps_lat) - min(gps_lat)
+            vio_lon_range = max(vio_lon) - min(vio_lon)
+            vio_lat_range = max(vio_lat) - min(vio_lat)
+
+            scale_for_lon = gps_lon_range / vio_lat_range  # VIO широта -> GPS долгота
+            scale_for_lat = gps_lat_range / vio_lon_range  # VIO долгота -> GPS широта
+
+            transformation_params = {
+                "gps_lon0": gps_lon0,
+                "gps_lat0": gps_lat0,
+                "vio_lon0": vio_lon0,
+                "vio_lat0": vio_lat0,
+                "scale_for_lon": scale_for_lon,
+                "scale_for_lat": scale_for_lat
+            }
+
+            with open("Debugs/transformation_params.json", "w") as f:
+                json.dump(transformation_params, f, indent=4)
+
+            def transform_vio_coords(vio_lon_list, vio_lat_list, params):
+                gps_lon0 = params["gps_lon0"]
+                gps_lat0 = params["gps_lat0"]
+                vio_lon0 = params["vio_lon0"]
+                vio_lat0 = params["vio_lat0"]
+                scale_for_lon = params["scale_for_lon"]
+                scale_for_lat = params["scale_for_lat"]
+
+                transformed_lon = [(v_lat - vio_lat0) * scale_for_lon + gps_lon0 for v_lat in vio_lat_list]
+                transformed_lat = [-(v_lon - vio_lon0) * scale_for_lat + gps_lat0 for v_lon in vio_lon_list]
+                return transformed_lon, transformed_lat
+
+            vio_lon_transformed, vio_lat_transformed = transform_vio_coords(vio_lon, vio_lat, transformation_params)
+            vio_alt_meters = [v_alt * 1000 for v_alt in vio_alt]
+
+            @nvtx.annotate("3D Graph", color="red")
+            def plot_draw(vio_lat):
+                fig = plt.figure(figsize=(18, 14))
+
+                # Вид 1: 90° по вертикали, -90° по горизонтали
+                ax1 = fig.add_subplot(231, projection='3d')
+                ax1.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax1.plot(vio_lon_transformed, vio_lat, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax1.set_xlabel('Долгота', fontsize=10)
+                ax1.set_ylabel('Широта', fontsize=10)
+                ax1.set_title('Вид 1: 90° по вертикали, -90° по горизонтали', fontsize=12)
+                ax1.view_init(elev=90, azim=-90)
+                ax1.legend()
+                ax1.tick_params(axis='both', which='major', labelsize=8)
+
+                # Вид 2: 0° по вертикали, 90° по горизонтали
+                ax2 = fig.add_subplot(232, projection='3d')
+                ax2.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax2.plot(vio_lon_transformed, vio_lat, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax2.set_xlabel('Долгота', fontsize=10)
+                ax2.set_zlabel('Высота (метры)', fontsize=10)
+                ax2.set_title('Вид 2: 0° по вертикали, 90° по горизонтали', fontsize=12)
+                ax2.view_init(elev=0, azim=-90)
+                ax2.legend()
+                ax2.tick_params(axis='both', which='major', labelsize=8)
+
+                # Вид 3: 60° по вертикали, 180° по горизонтали
+                ax3 = fig.add_subplot(233, projection='3d')
+                ax3.plot(gps_lon, gps_lat, gps_alt, linestyle="-", color="blue", label="GPS")
+                ax3.plot(vio_lon_transformed, vio_lat, vio_alt_meters, linestyle="--", color="red", label="VIO (трансформированные)")
+                ax3.set_xlabel('Долгота', fontsize=10)
+                ax3.set_ylabel('Широта', fontsize=10)
+                ax3.set_zlabel('Высота (метры)', fontsize=10)
+                ax3.set_title('Вид 3: 60° по вертикали, 180° по горизонтали', fontsize=12)
+                ax3.view_init(elev=60, azim=180)
+                ax3.legend()
+                ax3.tick_params(axis='both', which='major', labelsize=8)
+
+                plt.tight_layout()
+                plt.show()
+
+            plot_draw(vio_lat_transformed)
+
+
+            delta_lat = [gps_lat[i] - vio_lat_transformed[i] for i in range(len(gps_lat))]
+            plt.plot(delta_lat, label="Разница (GPS - VIO широта)")
+            plt.xlabel("Индекс точки")
+            plt.ylabel("Разница в широте")
+            plt.legend()
+            plt.title("Погрешность VIO по широте")
+            plt.grid()
+            plt.show()
+
+            """for i in range(0, len(delta_lat), 50):
+                print(f"delta_lat[{i}]: {delta_lat[i]:.10f}")"""
+
+            def plot_comparison(gps_lat, vio_lat):
+                plt.figure(figsize=(10, 6))
+                plt.plot(gps_lat, label="GPS Широта", color="blue")
+                plt.plot(vio_lat, label="VIO Широта (скорректированная)", color="red", linestyle="--")
+                plt.xlabel("Индекс точки")
+                plt.ylabel("Широта")
+                plt.legend()
+                plt.title("Сравнение GPS и VIO Широты")
+                plt.grid(True)
+                plt.show()
+
+            plot_comparison(gps_lat, vio_lat_transformed)
+
+
+    # %%
+    with nvtx.annotate("Draw Function", color="darkviolet"):
+        draw_graph2()
+
+    # %%
+    print(len(lat_GPS))
+    print(len(lat_VIO))
+
+vio_ort2.py
+
+# %%
+    import json
+    from time import time
+    from datetime import datetime, date, timedelta
+
+    import numpy as np
+    import cv2
+    from PIL import Image
+
+    from modules.xfeat_ort import XFeat
+
+    from pymavlink import mavutil
+
+    from nvtx import start_range, end_range
+
+    from joblib import Parallel, delayed
+
+
+    with open('fisheye_2024-09-18.json') as f:
+        camparam = json.load(f)
+
+    for shape in camparam['shapes']:
+        if shape['label']=='mask':
+            MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
+            cnt = np.asarray(shape['points']).reshape(-1,1,2).astype(np.int32)
+            cv2.drawContours(MASK, [cnt], -1, (255,255,255), -1)
+
+    CENTER = [camparam['ppx'], camparam['ppy']]
+    CENTER[0] += -6 #TODO insert corrections into file
+    CENTER[1] += 26 #TODO insert corrections into file
+    FOCAL = camparam['focal']
+    RAD = camparam['radius']
+    CROP_CENTER = np.asarray([RAD/2, RAD/2])
+
+    HOMO_THR = 2.0
+    NUM_MATCH_THR = 8
+    TRACE_DEPTH = 2
+    VEL_FIT_DEPTH = TRACE_DEPTH
+    METERS_DEG = 111320
+
+    FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
+
+    def pt2h(abs_pressure, temperature, P0):
+        return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
+
+    class VIO():
+        def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+            self.lat0 = lat0
+            self.lon0 = lon0
+            self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
+            self.track = []
+            self.trace = []
+            self.prev = None
+            self.HoM = None
+            self.height = 0
+            self.P0 = None
+
+        def add_trace_pt(self, frame, msg):
+            range_id_fetch = start_range("VIO.add_trace_pt.Fetch Angles & Height", color="green")
+            angles= fetch_angles(msg)
+            height = self.fetch_height(msg)
+            timestamp = time()
+            end_range(range_id_fetch)
+
+            range_id_preprocess = start_range("VIO.add_trace_pt.Preprocess Frame", color="yellow")
+            frame = preprocess_frame(frame, MASK)
+            end_range(range_id_preprocess)
+
+            range_id_rotate = start_range("VIO.add_trace_pt.Rotate Image", color="orange")
+            roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+
+            dpp = (int(CENTER[0] + roll * 2.5),
+                    int(CENTER[1] + pitch * 2.5)
+            )
+
+            M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+            rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+            rotated = np.asarray(rotated)
+            end_range(range_id_rotate)
+
+            range_id_remap = start_range("VIO.add_trace_pt.Remap and Crop", color="cyan")
+            map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
+            crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+            end_range(range_id_remap)
+
+            range_id_detect = start_range("VIO.add_trace_pt.Detect and compute", color="red")
+            trace_pt = dict(crop=crop,
+                            out= self.detect_and_compute(crop),
+                            angles=angles,
+                            height=height,
+                            )
+            end_range(range_id_detect)
+
+            if len(self.trace)>TRACE_DEPTH:
+                self.trace = self.trace[1:]
+
+            range_id_calc = start_range("VIO.add_trace_pt.Calculate Local Position", color="green")
+            if len(self.trace)==0:
+                trace_pt['local_posm'] = np.asarray([0, 0])
+            else:
+                local_pos_metric = self.calc_pos(trace_pt)
+                if local_pos_metric is None:
+                    # copy previous value if no one matches found on any of the previous frames
+                    trace_pt['local_posm'] = self.trace[-1]['local_posm']
+                else:
+                    trace_pt['local_posm'] = local_pos_metric
+            end_range(range_id_calc)
+
+            self.trace.append(trace_pt)
+            self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
+
+            ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
+            if len(tn)>=VEL_FIT_DEPTH:
+                # enough data to calculate velocity
+                vn = np.polyfit(ts, tn, 1)[0]
+                ve = np.polyfit(ts, te, 1)[0]
+                vd = 0 #- np.polyfit(ts, he, 1)[0]
+            else:
+                # set zero velocity if data insufficient
+                vn, ve, vd = 0, 0, 0
+
+            lat = self.lat0 + tn[-1] / METERS_DEG
+            lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude
+            alt = he[-1]
+            GPS_week, GPS_ms = calc_GPS_week_time()
+
+            return dict(timestamp=float(ts[-1]),
+                        to_north=float(tn[-1]),
+                        to_east=float(te[-1]),
+                        lat=float(lat),
+                        lon=float(lon),
+                        alt=float(alt),
+                        veln=float(vn),
+                        vele=float(ve),
+                        veld=float(vd),
+                        GPS_week=int(GPS_week),
+                        GPS_ms=int(GPS_ms)
+                        )
+
+        # Работает 1 раз за цикл
+        def calc_pos(self, next_pt):
+            poses = []
+            for prev_pt in self.trace: # Работает 4 раза за цикл
+                range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
+                match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
+                end_range(range_id_match)
+
+                if len(match_prev) <= NUM_MATCH_THR:
+                    continue
+
+                range_id_center = start_range("VIO.calc_pos.Center Projection", color="yellow")
+                center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+                pix_shift = CROP_CENTER - center_proj
+                pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+                height = np.mean([prev_pt['height'], next_pt['height']])
+                ############################################
+                ##### умножать
+                metric_shift = pix_shift / FOCAL * height
+                #########################################
+                local_pos = prev_pt['local_posm'] + metric_shift
+                poses.append(local_pos)
+                end_range(range_id_center)
+
+            return np.mean(poses, axis=0) if poses else None
+
+        # Работает 4 раза за цикл
+        def match_points_hom(self, out0, out1):
+            range_id_match = start_range("VIO.match_points_hom", color="blue")
+            idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
+            mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
+            end_range(range_id_match)
+
+            good_prev = []
+            good_next = []
+
+            range_id_hom = start_range("VIO.match_points_hom.Homography", color="green")
+            if len(mkpts_0)>=NUM_MATCH_THR:
+                HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+                end_range(range_id_hom)
+
+                range_id_filter = start_range("VIO.match_points_hom.Filter Matches", color="red")
+                mask = mask.ravel()
+                good_prev = mkpts_0[mask.astype(bool)]
+                good_next = mkpts_1[mask.astype(bool)]
+                end_range(range_id_filter)
+
+                return good_prev, good_next, HoM
+            else:
+                return [], [], np.eye(3)
+
+        # Работает 1 раз за цикл
+        # Никак не ускорить, все зависит от самой библиотеки XFeat
+        def detect_and_compute(self, frame):
+            range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
+            img = self._matcher.parse_input(frame)
+            end_range(range_id_parse)
+
+            range_id_detect = start_range("VIO.detect_and_compute.Detect and Compute", color="red")
+            out = self._matcher.detectAndCompute(img)[0]
+            end_range(range_id_detect)
+            return out
+
+        def vio2pixhawk(self, msg):
+
+            viom = msg['VIO']
+
+            return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
+                    0, # GPS sensor id in th, e case of multiple GPS
+                    FLAGS, # flags to ignore 8, 16, 32 etc
+                    # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
+
+                    viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
+                    viom['GPS_week'], # GPS week number
+                    3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
+                    int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
+                    int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
+                    viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
+                    1.0, # GPS HDOP horizontal dilution of precision in m
+                    1.0, # GPS VDOP vertical dilution of precision in m
+                    viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
+                    viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
+                    viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
+                    0.6, # GPS speed accuracy in m/s
+                    5.0, # GPS horizontal accuracy in m
+                    3.0, # GPS vertical accuracy in m
+                    10, # Number of satellites visible,
+                ]
+
+        def fetch_height(self, msg):
+            if self.P0 == None:
+                self.P0 = msg['SCALED_PRESSURE']['press_abs']
+            if self.P0 != None:
+                self.height = pt2h(
+                    msg['SCALED_PRESSURE']['press_abs'],
+                    msg['SCALED_PRESSURE']['temperature'],
+                    self.P0
+                )
+            pres =  msg['SCALED_PRESSURE']['press_abs']
+            temp = msg['SCALED_PRESSURE']['temperature']
+            #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
+            return max(0, self.height)
+
+    def calc_GPS_week_time():
+        today = date.today()
+        now = datetime.now()
+        epoch = date(1980, 1, 6)
+
+        epochMonday = epoch - timedelta(epoch.weekday())
+        todayMonday = today - timedelta(today.weekday())
+        GPS_week = int((todayMonday - epochMonday).days / 7)
+        GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute*60000 + now.second*1000 + int(now.microsecond/1000)
+        return GPS_week, GPS_ms
+
+    def fetch_angles(msg):
+        angles = msg['ATTITUDE']
+        angles['yaw'] = -angles['yaw']
+        return angles
+
+    def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
+        # Create a grid for the rectilinear image
+        rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
+        r = np.sqrt(rx**2 + ry**2) / focal
+
+        angle_n = np.arctan(r)
+        if fproj == 'equidistant':
+            angle_n = angle_n
+        elif fproj == 'orthographic':
+            angle_n = np.sin(angle_n)
+        elif fproj == 'stereographic':
+            angle_n = 2*np.tan(angle_n/2)
+        elif fproj == 'equisolid':
+            angle_n = 2*np.sin(angle_n/2)
+
+        angle_t = np.arctan2(ry, rx)
+
+        pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
+        pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
+
+        map_x = pt_x.astype(np.float32)
+        map_y = pt_y.astype(np.float32)
+
+        return map_x, map_y
+
+    def preprocess_frame(frame, mask):
+        frame = np.where(mask, frame, 0)
+        return frame
+
+Используя параллельную обработку
+
+Time	Total Time	Instances	Avg	Med	Min	Max	StdDev	Style	Range
+22.0%	119,670 s	1000	119,670 ms	119,000 ms	242,226 μs	237,683 ms	23,672 ms	PushPop	:File: Processing
+21.0%	114,536 s	997	114,881 ms	113,561 ms	48,727 ms	222,565 ms	22,415 ms	PushPop	:VIO: Process
+8.0%	47,579 s	997	47,722 ms	46,187 ms	16,331 μs	174,391 ms	19,745 ms	StartEnd	:VIO.add_trace_pt.Calculate Local Position
+8.0%	46,542 s	5644	8,246 ms	6,706 ms	977,528 μs	55,492 ms	5,751 ms	StartEnd	:VIO.calc_pos.Match Points Hom
+8.0%	46,359 s	997	46,498 ms	44,815 ms	19,087 ms	90,216 ms	11,050 ms	StartEnd	:VIO.add_trace_pt.Detect and compute
+7.0%	42,743 s	997	42,871 ms	41,516 ms	18,617 ms	82,570 ms	10,500 ms	StartEnd	:VIO.detect_and_compute.Detect and Compute
+5.0%	27,991 s	5644	4,959 ms	3,947 ms	247,578 μs	34,654 ms	3,981 ms	StartEnd	:VIO.match_points_hom
+3.0%	19,996 s	1	19,996 s	19,996 s	19,996 s	19,996 s	0 ns	PushPop	:Main: Execute
+3.0%	19,996 s	1	19,996 s	19,996 s	19,996 s	19,996 s	0 ns	PushPop	:ThreadPool: Execute
+3.0%	16,519 s	5644	2,927 ms	1,495 ms	353,455 μs	43,539 ms	4,211 ms	StartEnd	:VIO.match_points_hom.Homography
+2.0%	13,804 s	997	13,845 ms	13,056 ms	4,656 ms	43,263 ms	5,558 ms	StartEnd	:VIO.add_trace_pt.Remap and Crop
+1.0%	7,606 s	2	3,803 s	3,803 s	2,640 s	4,966 s	1,644 s	PushPop	:Draw Function
+0.0%	4,529 s	2	2,264 s	2,264 s	1,890 s	2,639 s	530,027 ms	PushPop	:3D Graph
+0.0%	4,464 s	997	4,477 ms	3,808 ms	616,623 μs	22,241 ms	3,254 ms	StartEnd	:VIO.add_trace_pt.Rotate Image
+0.0%	3,568 s	997	3,579 ms	2,792 ms	214,805 μs	17,163 ms	3,311 ms	StartEnd	:VIO.detect_and_compute.Parse Input
+0.0%	2,972 s	997	2,981 ms	1,835 ms	1,158 ms	14,938 ms	2,348 ms	PushPop	:Image: Load
+0.0%	2,053 s	1000	2,053 ms	698,699 μs	188,193 μs	19,781 ms	2,694 ms	PushPop	:JSON: Load
+0.0%	1,978 s	997	1,984 ms	1,059 ms	683,127 μs	17,105 ms	2,099 ms	StartEnd	:VIO.add_trace_pt.Preprocess Frame
+0.0%	1,091 s	5644	193,352 μs	25,936 μs	14,571 μs	14,207 ms	841,358 μs	StartEnd	:VIO.match_points_hom.Filter Matches
+0.0%	749,741 ms	5602	133,834 μs	49,623 μs	32,402 μs	14,263 ms	583,530 μs	StartEnd	:VIO.calc_pos.Center Projection
+0.0%	41,333 ms	1	41,333 ms	41,333 ms	41,333 ms	41,333 ms	0 ns	PushPop	:Init: Global VIO & Params
+0.0%	9,602 ms	997	9,630 μs	9,101 μs	3,911 μs	52,014 μs	2,778 μs	StartEnd	:VIO.add_trace_pt.Fetch Angles & Height
+0.0%	4,069 ms	997	4,080 μs	3,841 μs	2,711 μs	30,832 μs	1,509 μs	PushPop	:GPS: Process
+0.0%	1,895 ms	1000	1,895 μs	1,610 μs	1,100 μs	24,962 μs	1,501 μs	PushPop	:Data: Validate
+0.0%	16,691 μs	3	5,563 μs	5,820 μs	4,540 μs	6,331 μs	922 ns	PushPop	:Error: Register
+0.0%	13,031 μs	1	13,031 μs	13,031 μs	13,031 μs	13,031 μs	0 ns	PushPop	:Report Errors
+0.0%	5,861 μs	1	5,861 μs	5,861 μs	5,861 μs	5,861 μs	0 ns	PushPop	:Init: Error Collection
+0.0%	4,711 μs	2	2,355 μs	2,355 μs	1,140 μs	3,571 μs	1,719 μs	PushPop	:Math coords
+
+test_real.py
+
+# %%
+    import nvtx
+
+    with nvtx.annotate("Init: Imports", color="dodgerblue"):
+        import matplotlib.pyplot as plt
+        import os
+        import json
+        import cv2
+
+        import vio_ort2 as vio_ort
+    # %%
+    # Инициализация глобальных параметров
+    with nvtx.annotate("Init: Global VIO & Params", color="dodgerblue"):
+        odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+        set_dir = '2024_12_15_15_31_8_num_3'
+        json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
+        start = 1000
+        count_json = 100
+        lat_VIO, lon_VIO, alt_VIO = [], [], []
+        lat_GPS, lon_GPS, alt_GPS = [], [], []
+
+    # %%
+    def run_original():
+        # Iterate over files in the dataset directory
+        for filename in json_files[start:start + count_json]:
+            # Read the JSON file
+            with open(f'{set_dir}/{filename}', 'r') as file:
+                data = json.load(file)
+                if 'GNRMC' in data:
+                    if data['GNRMC']['status'] == 'A':
+                        img_path = set_dir + '/' + os.path.splitext(filename)[0] + '.jpg'
+                        image = cv2.imread(img_path)
+
+                        result_vio = odometry.add_trace_pt(image, data)
+
+                        lat_VIO.append(result_vio['lat'])
+                        lon_VIO.append(result_vio['lon'])
+                        alt_VIO.append(data['VIO']['alt'])
+
+                        lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                        lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+                        alt_GPS.append(data['GPS_RAW_INT']['alt'])
+        return {
+            'lat_VIO': lat_VIO,
+            'lon_VIO': lon_VIO,
+            'lat_GPS': lat_GPS,
+            'lon_GPS': lon_GPS
+        }
+    # %%
+    with nvtx.annotate("Main: Execute", color="black"):
+        orig_results = run_original()
+    # %%
+    with nvtx.annotate("Math coords", color="black"):
+        def draw_graph():
+            plt.plot(lon_GPS, lat_GPS, label='GPS', color='blue')
+            plt.plot(lon_VIO, lat_VIO, label='VIO', color='red')
+            plt.legend()
+            plt.show()
+
+    # %%
+    """with nvtx.annotate("Draw Function", color="darkviolet"):
+        draw_graph()"""
+
+    # %%
+    print(len(lat_GPS))
+    print(len(lat_VIO))
+
+vio_ort2.py
+
+# %%
+    import json
+    from time import time
+    from datetime import datetime, date, timedelta
+
+    import numpy as np
+    import cv2
+    from PIL import Image
+
+    from modules.xfeat_ort import XFeat
+
+    from pymavlink import mavutil
+
+    from nvtx import start_range, end_range
+
+    from joblib import Parallel, delayed
+
+
+    with open('fisheye_2024-09-18.json') as f:
+        camparam = json.load(f)
+
+    for shape in camparam['shapes']:
+        if shape['label']=='mask':
+            MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
+            cnt = np.asarray(shape['points']).reshape(-1,1,2).astype(np.int32)
+            cv2.drawContours(MASK, [cnt], -1, (255,255,255), -1)
+
+    CENTER = [camparam['ppx'], camparam['ppy']]
+    CENTER[0] += -6 #TODO insert corrections into file
+    CENTER[1] += 26 #TODO insert corrections into file
+    FOCAL = camparam['focal']
+    RAD = camparam['radius']
+    CROP_CENTER = np.asarray([RAD/2, RAD/2])
+
+    HOMO_THR = 2.0
+    NUM_MATCH_THR = 8
+    TRACE_DEPTH = 2
+    VEL_FIT_DEPTH = TRACE_DEPTH
+    METERS_DEG = 111320
+
+    FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
+
+    def pt2h(abs_pressure, temperature, P0):
+        return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
+
+    class VIO():
+        def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+            self.lat0 = lat0
+            self.lon0 = lon0
+            self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
+            self.track = []
+            self.trace = []
+            self.prev = None
+            self.HoM = None
+            self.height = 0
+            self.P0 = None
+
+        def add_trace_pt(self, frame, msg):
+            range_id_fetch = start_range("VIO.add_trace_pt.Fetch Angles & Height", color="green")
+            angles= fetch_angles(msg)
+            height = self.fetch_height(msg)
+            timestamp = time()
+            end_range(range_id_fetch)
+
+            range_id_preprocess = start_range("VIO.add_trace_pt.Preprocess Frame", color="yellow")
+            frame = preprocess_frame(frame, MASK)
+            end_range(range_id_preprocess)
+
+            range_id_rotate = start_range("VIO.add_trace_pt.Rotate Image", color="orange")
+            roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+
+            dpp = (int(CENTER[0] + roll * 2.5),
+                    int(CENTER[1] + pitch * 2.5)
+            )
+
+            M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+            rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+            rotated = np.asarray(rotated)
+            end_range(range_id_rotate)
+
+            range_id_remap = start_range("VIO.add_trace_pt.Remap and Crop", color="cyan")
+            map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
+            crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+            end_range(range_id_remap)
+
+            range_id_detect = start_range("VIO.add_trace_pt.Detect and compute", color="red")
+            trace_pt = dict(crop=crop,
+                            out= self.detect_and_compute(crop),
+                            angles=angles,
+                            height=height,
+                            )
+            end_range(range_id_detect)
+
+            if len(self.trace)>TRACE_DEPTH:
+                self.trace = self.trace[1:]
+
+            range_id_calc = start_range("VIO.add_trace_pt.Calculate Local Position", color="green")
+            if len(self.trace)==0:
+                trace_pt['local_posm'] = np.asarray([0, 0])
+            else:
+                local_pos_metric = self.calc_pos(trace_pt)
+                if local_pos_metric is None:
+                    # copy previous value if no one matches found on any of the previous frames
+                    trace_pt['local_posm'] = self.trace[-1]['local_posm']
+                else:
+                    trace_pt['local_posm'] = local_pos_metric
+            end_range(range_id_calc)
+
+            self.trace.append(trace_pt)
+            self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
+
+            ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
+            if len(tn)>=VEL_FIT_DEPTH:
+                # enough data to calculate velocity
+                vn = np.polyfit(ts, tn, 1)[0]
+                ve = np.polyfit(ts, te, 1)[0]
+                vd = 0 #- np.polyfit(ts, he, 1)[0]
+            else:
+                # set zero velocity if data insufficient
+                vn, ve, vd = 0, 0, 0
+
+            lat = self.lat0 + tn[-1] / METERS_DEG
+            lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude
+            alt = he[-1]
+            GPS_week, GPS_ms = calc_GPS_week_time()
+
+            return dict(timestamp=float(ts[-1]),
+                        to_north=float(tn[-1]),
+                        to_east=float(te[-1]),
+                        lat=float(lat),
+                        lon=float(lon),
+                        alt=float(alt),
+                        veln=float(vn),
+                        vele=float(ve),
+                        veld=float(vd),
+                        GPS_week=int(GPS_week),
+                        GPS_ms=int(GPS_ms)
+                        )
+
+        # Работает 1 раз за цикл
+        def calc_pos(self, next_pt):
+            poses = []
+            for prev_pt in self.trace: # Работает 4 раза за цикл
+                range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
+                match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
+                end_range(range_id_match)
+
+                if len(match_prev) <= NUM_MATCH_THR:
+                    continue
+
+                range_id_center = start_range("VIO.calc_pos.Center Projection", color="yellow")
+                center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
+                pix_shift = CROP_CENTER - center_proj
+                pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
+                height = np.mean([prev_pt['height'], next_pt['height']])
+                ############################################
+                ##### умножать
+                metric_shift = pix_shift / FOCAL * height
+                #########################################
+                local_pos = prev_pt['local_posm'] + metric_shift
+                poses.append(local_pos)
+                end_range(range_id_center)
+
+            return np.mean(poses, axis=0) if poses else None
+
+        # Работает 4 раза за цикл
+        def match_points_hom(self, out0, out1):
+            range_id_match = start_range("VIO.match_points_hom", color="blue")
+            idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
+            mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
+            end_range(range_id_match)
+
+            good_prev = []
+            good_next = []
+
+            range_id_hom = start_range("VIO.match_points_hom.Homography", color="green")
+            if len(mkpts_0)>=NUM_MATCH_THR:
+                HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+                end_range(range_id_hom)
+
+                range_id_filter = start_range("VIO.match_points_hom.Filter Matches", color="red")
+                mask = mask.ravel()
+                good_prev = mkpts_0[mask.astype(bool)]
+                good_next = mkpts_1[mask.astype(bool)]
+                end_range(range_id_filter)
+
+                return good_prev, good_next, HoM
+            else:
+                return [], [], np.eye(3)
+
+        # Работает 1 раз за цикл
+        # Никак не ускорить, все зависит от самой библиотеки XFeat
+        def detect_and_compute(self, frame):
+            range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
+            img = self._matcher.parse_input(frame)
+            end_range(range_id_parse)
+
+            range_id_detect = start_range("VIO.detect_and_compute.Detect and Compute", color="red")
+            out = self._matcher.detectAndCompute(img)[0]
+            end_range(range_id_detect)
+            return out
+
+        def vio2pixhawk(self, msg):
+
+            viom = msg['VIO']
+
+            return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
+                    0, # GPS sensor id in th, e case of multiple GPS
+                    FLAGS, # flags to ignore 8, 16, 32 etc
+                    # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
+                    # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
+
+                    viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
+                    viom['GPS_week'], # GPS week number
+                    3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
+                    int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
+                    int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
+                    viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
+                    1.0, # GPS HDOP horizontal dilution of precision in m
+                    1.0, # GPS VDOP vertical dilution of precision in m
+                    viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
+                    viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
+                    viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
+                    0.6, # GPS speed accuracy in m/s
+                    5.0, # GPS horizontal accuracy in m
+                    3.0, # GPS vertical accuracy in m
+                    10, # Number of satellites visible,
+                ]
+
+        def fetch_height(self, msg):
+            if self.P0 == None:
+                self.P0 = msg['SCALED_PRESSURE']['press_abs']
+            if self.P0 != None:
+                self.height = pt2h(
+                    msg['SCALED_PRESSURE']['press_abs'],
+                    msg['SCALED_PRESSURE']['temperature'],
+                    self.P0
+                )
+            pres =  msg['SCALED_PRESSURE']['press_abs']
+            temp = msg['SCALED_PRESSURE']['temperature']
+            #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
+            return max(0, self.height)
+
+    def calc_GPS_week_time():
+        today = date.today()
+        now = datetime.now()
+        epoch = date(1980, 1, 6)
+
+        epochMonday = epoch - timedelta(epoch.weekday())
+        todayMonday = today - timedelta(today.weekday())
+        GPS_week = int((todayMonday - epochMonday).days / 7)
+        GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute*60000 + now.second*1000 + int(now.microsecond/1000)
+        return GPS_week, GPS_ms
+
+    def fetch_angles(msg):
+        angles = msg['ATTITUDE']
+        angles['yaw'] = -angles['yaw']
+        return angles
+
+    def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
+        # Create a grid for the rectilinear image
+        rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
+        r = np.sqrt(rx**2 + ry**2) / focal
+
+        angle_n = np.arctan(r)
+        if fproj == 'equidistant':
+            angle_n = angle_n
+        elif fproj == 'orthographic':
+            angle_n = np.sin(angle_n)
+        elif fproj == 'stereographic':
+            angle_n = 2*np.tan(angle_n/2)
+        elif fproj == 'equisolid':
+            angle_n = 2*np.sin(angle_n/2)
+
+        angle_t = np.arctan2(ry, rx)
+
+        pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
+        pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
+
+        map_x = pt_x.astype(np.float32)
+        map_y = pt_y.astype(np.float32)
+
+        return map_x, map_y
+
+    def preprocess_frame(frame, mask):
+        frame = np.where(mask, frame, 0)
+        return frame
+
+
+Используя прямую обработку как если бы в прямом эфире шла обработка
+
+Time	Total Time	Instances	Avg	Med	Min	Max	StdDev	Style	Range
+29.0%	6,592 s	1	6,592 s	6,592 s	6,592 s	6,592 s	0 ns	PushPop	:Main: Execute
+21.0%	4,895 s	100	48,953 ms	38,126 ms	17,111 ms	138,302 ms	26,214 ms	StartEnd	:VIO.add_trace_pt.Detect and compute
+21.0%	4,848 s	100	48,483 ms	37,879 ms	16,973 ms	135,541 ms	25,980 ms	StartEnd	:VIO.detect_and_compute.Detect and Compute
+16.0%	3,740 s	1	3,740 s	3,740 s	3,740 s	3,740 s	0 ns	PushPop	:Init: Imports
+2.0%	644,482 ms	100	6,445 ms	5,299 ms	3,385 ms	15,832 ms	2,825 ms	StartEnd	:VIO.add_trace_pt.Remap and Crop
+2.0%	552,308 ms	100	5,523 ms	2,823 ms	26,333 μs	31,428 ms	5,192 ms	StartEnd	:VIO.add_trace_pt.Calculate Local Position
+2.0%	531,329 ms	197	2,697 ms	1,244 ms	609,013 μs	26,237 ms	2,964 ms	StartEnd	:VIO.calc_pos.Match Points Hom
+1.0%	356,964 ms	197	1,812 ms	739,386 μs	256,117 μs	9,324 ms	2,150 ms	StartEnd	:VIO.match_points_hom.Homography
+0.0%	166,705 ms	100	1,667 ms	1,420 ms	685,671 μs	6,231 ms	987,896 μs	StartEnd	:VIO.add_trace_pt.Rotate Image
+0.0%	161,683 ms	197	820,727 μs	363,367 μs	235,014 μs	24,911 ms	2,092 ms	StartEnd	:VIO.match_points_hom
+0.0%	105,616 ms	1	105,616 ms	105,616 ms	105,616 ms	105,616 ms	0 ns	PushPop	:Init: Global VIO & Params
+0.0%	103,246 ms	100	1,032 ms	813,363 μs	553,508 μs	2,169 ms	491,814 μs	StartEnd	:VIO.add_trace_pt.Preprocess Frame
+0.0%	41,394 ms	100	413,942 μs	378,474 μs	126,603 μs	4,152 ms	497,334 μs	StartEnd	:VIO.detect_and_compute.Parse Input
+0.0%	14,380 ms	193	74,505 μs	73,207 μs	27,283 μs	305,851 μs	42,826 μs	StartEnd	:VIO.calc_pos.Center Projection
+0.0%	7,408 ms	197	37,604 μs	32,554 μs	12,411 μs	142,835 μs	21,342 μs	StartEnd	:VIO.match_points_hom.Filter Matches
+0.0%	1,035 ms	100	10,347 μs	8,041 μs	6,291 μs	26,003 μs	4,546 μs	StartEnd	:VIO.add_trace_pt.Fetch Angles & Height
+0.0%	1,320 μs	1	1,320 μs	1,320 μs	1,320 μs	1,320 μs	0 ns	PushPop	:Math coords
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import json
 from time import time
 from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
-from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -31,26 +1131,17 @@ CROP_CENTER = np.asarray([RAD/2, RAD/2])
 
 HOMO_THR = 2.0
 NUM_MATCH_THR = 8
-TRACE_DEPTH = 4
+TRACE_DEPTH = 2
 VEL_FIT_DEPTH = TRACE_DEPTH
 METERS_DEG = 111320
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
-def count_none_recursive(arr):
-    count = 0
-    for item in arr:
-        if isinstance(item, list) or isinstance(item, np.ndarray):
-            count += count_none_recursive(item)
-        elif item is None:
-            count += 1
-    return count
-
-def pt2h(abs_pressure, temperature, P0):    
+def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
 
 class VIO():
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=128, detection_threshold=0.01):
+    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
         self.lat0 = lat0
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
@@ -61,44 +1152,45 @@ class VIO():
         self.height = 0
         self.P0 = None
 
-    def add_trace_pt(self, frame, msg):        
+    def add_trace_pt(self, frame, msg):
         range_id_fetch = start_range("VIO.add_trace_pt.Fetch Angles & Height", color="green")
         angles= fetch_angles(msg)
         height = self.fetch_height(msg)
         timestamp = time()
         end_range(range_id_fetch)
-        
+
         range_id_preprocess = start_range("VIO.add_trace_pt.Preprocess Frame", color="yellow")
         frame = preprocess_frame(frame, MASK)
         end_range(range_id_preprocess)
-        
+
         range_id_rotate = start_range("VIO.add_trace_pt.Rotate Image", color="orange")
-        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180 
-        
+        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+
         dpp = (int(CENTER[0] + roll * 2.5),
                  int(CENTER[1] + pitch * 2.5)
         )
-        
-        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+
+        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
         rotated = np.asarray(rotated)
         end_range(range_id_rotate)
-        
+
         range_id_remap = start_range("VIO.add_trace_pt.Remap and Crop", color="cyan")
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         end_range(range_id_remap)
-        
+
         range_id_detect = start_range("VIO.add_trace_pt.Detect and compute", color="red")
         trace_pt = dict(crop=crop,
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
-                       )
+                        )
         end_range(range_id_detect)
-        
+
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
-            
+
         range_id_calc = start_range("VIO.add_trace_pt.Calculate Local Position", color="green")
         if len(self.trace)==0:
             trace_pt['local_posm'] = np.asarray([0, 0])
@@ -106,11 +1198,11 @@ class VIO():
             local_pos_metric = self.calc_pos(trace_pt)
             if local_pos_metric is None:
                 # copy previous value if no one matches found on any of the previous frames
-                trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
+                trace_pt['local_posm'] = self.trace[-1]['local_posm']
             else:
                 trace_pt['local_posm'] = local_pos_metric
         end_range(range_id_calc)
-        
+
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
@@ -121,14 +1213,14 @@ class VIO():
             ve = np.polyfit(ts, te, 1)[0]
             vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
-            # set zero velocity if data insufficient  
+            # set zero velocity if data insufficient
             vn, ve, vd = 0, 0, 0
-            
+
         lat = self.lat0 + tn[-1] / METERS_DEG
-        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude 
+        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        
+
         return dict(timestamp=float(ts[-1]),
                     to_north=float(tn[-1]),
                     to_east=float(te[-1]),
@@ -140,39 +1232,27 @@ class VIO():
                     veld=float(vd),
                     GPS_week=int(GPS_week),
                     GPS_ms=int(GPS_ms)
-                   )
-    
+                    )
+
     # Работает 1 раз за цикл
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace: # Работает 4 раза за цикл
             range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
-                                                                next_pt['out'],
-                                                                )
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
             end_range(range_id_match)
-            
+
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
-            
+
             range_id_center = start_range("VIO.calc_pos.Center Projection", color="yellow")
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
-            pix_shift = CROP_CENTER - center_proj
-            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-            height = np.mean([prev_pt['height'], next_pt['height']])
-            ############################################
-            ##### умножать
-            metric_shift = pix_shift / FOCAL * height
-            #########################################
+            metric_shift = (CROP_CENTER - cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel())[::-1] / FOCAL * np.mean([prev_pt['height'], next_pt['height']])
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
             end_range(range_id_center)
 
-        if len(poses):
-            return np.mean(poses, axis=0)
-        else:
-            return None
-    
+        return np.mean(poses, axis=0) if poses else None
+
     # Работает 4 раза за цикл
     def match_points_hom(self, out0, out1):
         range_id_match = start_range("VIO.match_points_hom", color="blue")
@@ -182,46 +1262,38 @@ class VIO():
 
         good_prev = []
         good_next = []
-        if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
 
+        range_id_hom = start_range("VIO.match_points_hom.Homography", color="green")
+        if len(mkpts_0)>=NUM_MATCH_THR:
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+            end_range(range_id_hom)
+
+            range_id_filter = start_range("VIO.match_points_hom.Filter Matches", color="red")
             mask = mask.ravel()
-            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
-            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-        
+            good_prev = mkpts_0[mask.astype(bool)]
+            good_next = mkpts_1[mask.astype(bool)]
+            end_range(range_id_filter)
+
             return good_prev, good_next, HoM
         else:
             return [], [], np.eye(3)
-    
+
     # Работает 1 раз за цикл
+    # Никак не ускорить, все зависит от самой библиотеки XFeat
     def detect_and_compute(self, frame):
         range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
         img = self._matcher.parse_input(frame)
         end_range(range_id_parse)
-        
+
         range_id_detect = start_range("VIO.detect_and_compute.Detect and Compute", color="red")
         out = self._matcher.detectAndCompute(img)[0]
         end_range(range_id_detect)
         return out
 
-    def fetch_height(self, msg):
-        if self.P0 == None:
-            self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        if self.P0 != None:
-            self.height = pt2h(
-                msg['SCALED_PRESSURE']['press_abs'], 
-                msg['SCALED_PRESSURE']['temperature'], 
-                self.P0
-            )
-        pres =  msg['SCALED_PRESSURE']['press_abs']
-        temp = msg['SCALED_PRESSURE']['temperature']
-        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
-        return max(0, self.height)
-    
     def vio2pixhawk(self, msg):
 
         viom = msg['VIO']
-        
+
         return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
                 0, # GPS sensor id in th, e case of multiple GPS
                 FLAGS, # flags to ignore 8, 16, 32 etc
@@ -230,7 +1302,7 @@ class VIO():
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-                
+
                 viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
                 viom['GPS_week'], # GPS week number
                 3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
@@ -248,11 +1320,25 @@ class VIO():
                 10, # Number of satellites visible,
                ]
 
+    def fetch_height(self, msg):
+        if self.P0 == None:
+            self.P0 = msg['SCALED_PRESSURE']['press_abs']
+        if self.P0 != None:
+            self.height = pt2h(
+                msg['SCALED_PRESSURE']['press_abs'],
+                msg['SCALED_PRESSURE']['temperature'],
+                self.P0
+            )
+        pres =  msg['SCALED_PRESSURE']['press_abs']
+        temp = msg['SCALED_PRESSURE']['temperature']
+        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
+        return max(0, self.height)
+
 def calc_GPS_week_time():
     today = date.today()
     now = datetime.now()
     epoch = date(1980, 1, 6)
-    
+
     epochMonday = epoch - timedelta(epoch.weekday())
     todayMonday = today - timedelta(today.weekday())
     GPS_week = int((todayMonday - epochMonday).days / 7)
@@ -263,25 +1349,6 @@ def fetch_angles(msg):
     angles = msg['ATTITUDE']
     angles['yaw'] = -angles['yaw']
     return angles
-   
-def extract_neighborhood(image, keypoint, size):
-    x, y = keypoint
-    half_size = size // 2
-    
-    x_start = x - half_size
-    x_end = x + half_size
-    y_start = y - half_size
-    y_end = y + half_size
-    # Reject keypoints too close to boundaries
-    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
-        return None
-        
-    nbh = image[y_start:y_end, x_start:x_end]
-    # Reject keypoints  with mask pixels
-    if np.any(nbh==0):
-        return None
-    else:
-        return nbh
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     # Create a grid for the rectilinear image
@@ -292,20 +1359,20 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     if fproj == 'equidistant':
         angle_n = angle_n
     elif fproj == 'orthographic':
-        angle_n = np.sin(angle_n)    
+        angle_n = np.sin(angle_n)
     elif fproj == 'stereographic':
         angle_n = 2*np.tan(angle_n/2)
     elif fproj == 'equisolid':
         angle_n = 2*np.sin(angle_n/2)
-    
+
     angle_t = np.arctan2(ry, rx)
-    
+
     pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
     pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-    
+
     map_x = pt_x.astype(np.float32)
     map_y = pt_y.astype(np.float32)
-    
+
     return map_x, map_y
 
 def preprocess_frame(frame, mask):

@@ -4,7 +4,6 @@ from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
-from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -69,7 +68,7 @@ class VIO():
         dpp = (int(CENTER[0] + roll * 2.5),
                  int(CENTER[1] + pitch * 2.5)
         )
-        
+
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
         rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
         rotated = np.asarray(rotated)
@@ -145,23 +144,33 @@ class VIO():
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
 
-            range_id_center = start_range("VIO.calc_pos.Center Projection", color="yellow")
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
-            pix_shift = CROP_CENTER - center_proj
-            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-            height = np.mean([prev_pt['height'], next_pt['height']])
-            ############################################
-            ##### умножать
-            metric_shift = pix_shift / FOCAL * height
-            #########################################
+            range_id_center = start_range("VIO.calc_pos.Center Projection", color="black")
+            metric_shift = (CROP_CENTER - cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel())[::-1] / FOCAL * np.mean([prev_pt['height'], next_pt['height']])
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
             end_range(range_id_center)
 
-        if len(poses):
-            return np.mean(poses, axis=0)
-        else:
-            return None
+        return np.mean(poses, axis=0) if poses else None
+    
+    def calc_pos(self, next_pt):
+        poses = []
+        cached_matrices = {}  # Кэш для Homography
+        for prev_pt in self.trace:
+            range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+            end_range(range_id_match)
+            
+            if len(match_prev) <= NUM_MATCH_THR:
+                continue
+            
+            range_id_center = start_range("VIO.calc_pos.Center Projection", color="black")
+            if HoM not in cached_matrices:
+                cached_matrices[HoM] = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM)
+            
+            metric_shift = (CROP_CENTER - cached_matrices[HoM].ravel())[::-1] / FOCAL * np.mean([prev_pt['height'], next_pt['height']])
+            poses.append(prev_pt['local_posm'] + metric_shift)
+            end_range(range_id_center)
+        return np.mean(poses, axis=0) if poses else None
 
     # Работает 4 раза за цикл
     def match_points_hom(self, out0, out1):
@@ -172,12 +181,12 @@ class VIO():
 
         good_prev = []
         good_next = []
-        
+
         range_id_hom = start_range("VIO.match_points_hom.Homography", color="green")
         if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=1000)
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
             end_range(range_id_hom)
-            
+
             range_id_filter = start_range("VIO.match_points_hom.Filter Matches", color="red")
             mask = mask.ravel()
             good_prev = mkpts_0[mask.astype(bool)]
@@ -189,6 +198,7 @@ class VIO():
             return [], [], np.eye(3)
 
     # Работает 1 раз за цикл
+    # Никак не ускорить, все зависит от самой библиотеки XFeat
     def detect_and_compute(self, frame):
         range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
         img = self._matcher.parse_input(frame)
@@ -198,11 +208,11 @@ class VIO():
         out = self._matcher.detectAndCompute(img)[0]
         end_range(range_id_detect)
         return out
-    
+
     def vio2pixhawk(self, msg):
 
         viom = msg['VIO']
-        
+
         return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
                 0, # GPS sensor id in th, e case of multiple GPS
                 FLAGS, # flags to ignore 8, 16, 32 etc
@@ -211,7 +221,7 @@ class VIO():
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-                
+
                 viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
                 viom['GPS_week'], # GPS week number
                 3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
