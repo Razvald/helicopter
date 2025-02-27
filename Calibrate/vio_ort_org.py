@@ -70,8 +70,8 @@ class VIO():
 
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
 
-        dpp = (int(CENTER[0] + roll * 2.5),
-                 int(CENTER[1] + pitch * 2.5)
+        dpp = (int(CENTER[0] + roll * 2.5), 
+               int(CENTER[1] + pitch * 2.5)
         )
 
         rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
@@ -84,7 +84,7 @@ class VIO():
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
-                       )
+                        )
 
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
@@ -128,7 +128,7 @@ class VIO():
                     veld=float(vd),
                     GPS_week=int(GPS_week),
                     GPS_ms=int(GPS_ms)
-                   )
+                    )
 
     def calc_pos(self, next_pt):
         poses = []
@@ -238,7 +238,6 @@ def fetch_angles(msg):
     angles = msg['ATTITUDE']
     angles['yaw'] = -angles['yaw']
     return angles
-
 
 def extract_neighborhood(image, keypoint, size):
     x, y = keypoint

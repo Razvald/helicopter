@@ -281,3 +281,22 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
 def preprocess_frame(frame, mask):
     frame = np.where(mask, frame, 0)
     return frame
+
+def extract_neighborhood(image, keypoint, size):
+    x, y = keypoint
+    half_size = size // 2
+
+    x_start = x - half_size
+    x_end = x + half_size
+    y_start = y - half_size
+    y_end = y + half_size
+    # Reject keypoints too close to boundaries
+    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
+        return None
+
+    nbh = image[y_start:y_end, x_start:x_end]
+    # Reject keypoints  with mask pixels
+    if np.any(nbh==0):
+        return None
+    else:
+        return nbh
