@@ -281,3 +281,10 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
 def preprocess_frame(frame, mask):
     frame = np.where(mask, frame, 0)
     return frame
+
+
+./Profiling/prof.sh test_real.py
+./Profiling/prof.sh test_real.py
+./Profiling/prof.sh test_real.py
+./Profiling/prof.sh test_real.py
+./Profiling/prof.sh test_real.py
