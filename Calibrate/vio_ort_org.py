@@ -10,6 +10,8 @@ from modules.xfeat_ort import XFeat
 
 from pymavlink import mavutil
 
+from nvtx import start_range, end_range
+
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
@@ -48,7 +50,6 @@ def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
 
 class VIO():
-
     def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
         self.lat0 = lat0
         self.lon0 = lon0
@@ -61,13 +62,17 @@ class VIO():
         self.P0 = None
 
     def add_trace_pt(self, frame, msg):
-
+        range_id_fetch = start_range("VIO.add_trace_pt.Fetch Angles & Height", color="green")
         angles= fetch_angles(msg)
         height = self.fetch_height(msg)
         timestamp = time()
+        end_range(range_id_fetch)
 
+        range_id_preprocess = start_range("VIO.add_trace_pt.Preprocess Frame", color="yellow")
         frame = preprocess_frame(frame, MASK)
+        end_range(range_id_preprocess)
 
+        range_id_rotate = start_range("VIO.add_trace_pt.Rotate Image", color="orange")
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
 
         dpp = (int(CENTER[0] + roll * 2.5), 
@@ -76,19 +81,25 @@ class VIO():
 
         rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
+        end_range(range_id_rotate)
 
+        range_id_remap = start_range("VIO.add_trace_pt.Remap and Crop", color="cyan")
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        end_range(range_id_remap)
 
+        range_id_detect = start_range("VIO.add_trace_pt.Detect and compute", color="red")
         trace_pt = dict(crop=crop,
                         out= self.detect_and_compute(crop),
                         angles=angles,
                         height=height,
                         )
+        end_range(range_id_detect)
 
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
 
+        range_id_calc = start_range("VIO.add_trace_pt.Calculate Local Position", color="green")
         if len(self.trace)==0:
             trace_pt['local_posm'] = np.asarray([0, 0])
         else:
@@ -98,6 +109,7 @@ class VIO():
                 trace_pt['local_posm'] = self.trace[-1]['local_posm']
             else:
                 trace_pt['local_posm'] = local_pos_metric
+        end_range(range_id_calc)
 
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
@@ -133,23 +145,22 @@ class VIO():
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
-                                                                next_pt['out'],
-                                                                )
+            range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
+            end_range(range_id_match)
 
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
 
+            range_id_center = start_range("VIO.calc_pos.Center Projection", color="black")
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
             height = np.mean([prev_pt['height'], next_pt['height']])
-            ############################################
-            ##### умножать
             metric_shift = pix_shift / FOCAL * height
-            #########################################
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
+            end_range(range_id_center)
 
         if len(poses):
             return np.mean(poses, axis=0)
@@ -157,26 +168,36 @@ class VIO():
             return None
 
     def match_points_hom(self, out0, out1):
+        range_id_match = start_range("VIO.match_points_hom", color="blue")
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
+        end_range(range_id_match)
 
         good_prev = []
         good_next = []
+
+        range_id_hom = start_range("VIO.match_points_hom.Homography", color="green")
         if len(mkpts_0)>=NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
 
+            range_id_filter = start_range("VIO.match_points_hom.Filter Matches", color="red")
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
             good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
+            end_range(range_id_filter)
 
             return good_prev, good_next, HoM
-
         else:
             return [], [], np.eye(3)
 
     def detect_and_compute(self, frame):
+        range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
         img = self._matcher.parse_input(frame)
+        end_range(range_id_parse)
+
+        range_id_detect = start_range("VIO.detect_and_compute.Detect and Compute", color="red")
         out = self._matcher.detectAndCompute(img)[0]
+        end_range(range_id_detect)
         return out
 
     def fetch_height(self, msg):
@@ -239,25 +260,6 @@ def fetch_angles(msg):
     angles['yaw'] = -angles['yaw']
     return angles
 
-def extract_neighborhood(image, keypoint, size):
-    x, y = keypoint
-    half_size = size // 2
-
-    x_start = x - half_size
-    x_end = x + half_size
-    y_start = y - half_size
-    y_end = y + half_size
-    # Reject keypoints too close to boundaries
-    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
-        return None
-
-    nbh = image[y_start:y_end, x_start:x_end]
-    # Reject keypoints  with mask pixels
-    if np.any(nbh==0):
-        return None
-    else:
-        return nbh
-
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     # Create a grid for the rectilinear image
     rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
@@ -286,3 +288,22 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
 def preprocess_frame(frame, mask):
     frame = np.where(mask, frame, 0)
     return frame
+
+def extract_neighborhood(image, keypoint, size):
+    x, y = keypoint
+    half_size = size // 2
+
+    x_start = x - half_size
+    x_end = x + half_size
+    y_start = y - half_size
+    y_end = y + half_size
+    # Reject keypoints too close to boundaries
+    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
+        return None
+
+    nbh = image[y_start:y_end, x_start:x_end]
+    # Reject keypoints  with mask pixels
+    if np.any(nbh==0):
+        return None
+    else:
+        return nbh

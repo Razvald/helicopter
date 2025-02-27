@@ -36,6 +36,15 @@ METERS_DEG = 111320
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
+def count_none_recursive(arr):
+    count = 0
+    for item in arr:
+        if isinstance(item, list) or isinstance(item, np.ndarray):
+            count += count_none_recursive(item)
+        elif item is None:
+            count += 1
+    return count
+
 def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
 
@@ -65,8 +74,8 @@ class VIO():
         range_id_rotate = start_range("VIO.add_trace_pt.Rotate Image", color="orange")
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
 
-        dpp = (int(CENTER[0] + roll * 2.5),
-                 int(CENTER[1] + pitch * 2.5)
+        dpp = (int(CENTER[0] + roll * 2.5), 
+               int(CENTER[1] + pitch * 2.5)
         )
 
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
@@ -133,10 +142,9 @@ class VIO():
                     GPS_ms=int(GPS_ms)
                     )
 
-    # Работает 1 раз за цикл
     def calc_pos(self, next_pt):
         poses = []
-        for prev_pt in self.trace: # Работает 4 раза за цикл
+        for prev_pt in self.trace:
             range_id_match = start_range("VIO.calc_pos.Match Points Hom", color="green")
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
             end_range(range_id_match)
@@ -156,7 +164,6 @@ class VIO():
 
         return np.mean(poses, axis=0) if poses else None
 
-    # Работает 4 раза за цикл
     def match_points_hom(self, out0, out1):
         range_id_match = start_range("VIO.match_points_hom", color="blue")
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
@@ -181,8 +188,6 @@ class VIO():
         else:
             return [], [], np.eye(3)
 
-    # Работает 1 раз за цикл
-    # Никак не ускорить, все зависит от самой библиотеки XFeat
     def detect_and_compute(self, frame):
         range_id_parse = start_range("VIO.detect_and_compute.Parse Input", color="blue")
         img = self._matcher.parse_input(frame)
@@ -192,6 +197,20 @@ class VIO():
         out = self._matcher.detectAndCompute(img)[0]
         end_range(range_id_detect)
         return out
+
+    def fetch_height(self, msg):
+        if self.P0 == None:
+            self.P0 = msg['SCALED_PRESSURE']['press_abs']
+        if self.P0 != None:
+            self.height = pt2h(
+                msg['SCALED_PRESSURE']['press_abs'],
+                msg['SCALED_PRESSURE']['temperature'],
+                self.P0
+            )
+        pres =  msg['SCALED_PRESSURE']['press_abs']
+        temp = msg['SCALED_PRESSURE']['temperature']
+        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
+        return max(0, self.height)
 
     def vio2pixhawk(self, msg):
 
@@ -220,22 +239,8 @@ class VIO():
                 0.6, # GPS speed accuracy in m/s
                 5.0, # GPS horizontal accuracy in m
                 3.0, # GPS vertical accuracy in m
-                10, # Number of satellites visible,
-               ]
-
-    def fetch_height(self, msg):
-        if self.P0 == None:
-            self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        if self.P0 != None:
-            self.height = pt2h(
-                msg['SCALED_PRESSURE']['press_abs'],
-                msg['SCALED_PRESSURE']['temperature'],
-                self.P0
-            )
-        pres =  msg['SCALED_PRESSURE']['press_abs']
-        temp = msg['SCALED_PRESSURE']['temperature']
-        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
-        return max(0, self.height)
+                10, # Number of satellites visible, 
+                ]
 
 def calc_GPS_week_time():
     today = date.today()
