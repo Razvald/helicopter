@@ -220,7 +220,7 @@ class VIO():
                 0.6, # GPS speed accuracy in m/s
                 5.0, # GPS horizontal accuracy in m
                 3.0, # GPS vertical accuracy in m
-                10, # Number of satellites visible,
+                10, # Number of satellites visible, 
                 ]
 
 def calc_GPS_week_time():
