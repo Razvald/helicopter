@@ -8,7 +8,7 @@ import concurrent.futures
 import threading
 from collections import defaultdict
 # %%
-import vio_ort2 as vio_ort
+import Calibrate.vio_ort as vio_ort
 
 # %%
 # Инициализация глобальных параметров
@@ -361,7 +361,6 @@ with nvtx.annotate("Math coords", color="black"):
             plt.show()
 
         plot_comparison(gps_lat, vio_lat_transformed)
-
 
 # %%
 with nvtx.annotate("Draw Function", color="darkviolet"):
