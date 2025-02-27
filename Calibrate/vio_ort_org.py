@@ -221,7 +221,7 @@ class VIO():
                 5.0, # GPS horizontal accuracy in m
                 3.0, # GPS vertical accuracy in m
                 10, # Number of satellites visible,
-               ]
+                ]
 
 def calc_GPS_week_time():
     today = date.today()
