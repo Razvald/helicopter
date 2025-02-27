@@ -7,7 +7,7 @@ with nvtx.annotate("Init: Imports", color="dodgerblue"):
     import json
     import cv2
 
-    import Calibrate.vio_ort as vio_ort
+    import vio_ort as vio_ort
 # %%
 # Инициализация глобальных параметров
 with nvtx.annotate("Init: Global VIO & Params", color="dodgerblue"):
