@@ -14,18 +14,17 @@ with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
 
 # Create a mask for the image
+MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
 for shape in camparam['shapes']:
-    if shape['label']=='mask':
-        MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
-        cnt = np.asarray(shape['points']).reshape(-1,1,2).astype(np.int32)
-        cv2.drawContours(MASK, [cnt], -1, (255,255,255), -1)
+    if shape['label'] == 'mask':
+        cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
+        cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
 
-CENTER = [camparam['ppx'], camparam['ppy']]
-CENTER[0] += -6 #TODO insert corrections into file
-CENTER[1] += 26 #TODO insert corrections into file
+# Calculate camera parameters
+CENTER = np.asarray([camparam['ppx'] - 6, camparam['ppy'] + 26])  #TODO insert corrections into file
 FOCAL = camparam['focal']
 RAD = camparam['radius']
-CROP_CENTER = np.asarray([RAD/2, RAD/2])
+CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
 
 HOMO_THR = 2.0
 NUM_MATCH_THR = 8
@@ -35,7 +34,7 @@ METERS_DEG = 111320
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
-class VIO():
+class VIO:
     def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
         self.lat0 = lat0
         self.lon0 = lon0
@@ -48,35 +47,37 @@ class VIO():
         self.P0 = None
 
     def add_trace_pt(self, frame, msg):
+        # Fetch angles and height
         angles = fetch_angles(msg)
         height = self.fetch_height(msg)
         timestamp = time()
 
+        # Preprocess frame
         frame = preprocess_frame(frame, MASK)
 
+        # Rotate image
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
-
-        dpp = (int(CENTER[0] + roll * 2.5), 
-               int(CENTER[1] + pitch * 2.5)
-        )
-
+        dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
         rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
-        rotated = np.asarray(rotated)
 
+        # Remap and crop
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
-        trace_pt = dict(crop=crop,
-                        out= self.detect_and_compute(crop),
-                        angles=angles,
-                        height=height,
-                        )
+        # Detect and compute
+        trace_pt = dict(
+            crop=crop,
+            out = self.detect_and_compute(crop),
+            angles=angles,
+            height=height,
+        )
 
+        # Update trace and track
         if len(self.trace) > TRACE_DEPTH:
             self.trace = self.trace[1:]
 
-        if len(self.trace)==0:
+        if len(self.trace) == 0:
             trace_pt['local_posm'] = np.asarray([0, 0])
         else:
             local_pos_metric = self.calc_pos(trace_pt)
@@ -89,14 +90,13 @@ class VIO():
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
+        # Calculate velocity
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
-        if len(tn)>=VEL_FIT_DEPTH:
-            # enough data to calculate velocity
+        if len(tn) >= VEL_FIT_DEPTH:
             vn = np.polyfit(ts, tn, 1)[0]
             ve = np.polyfit(ts, te, 1)[0]
             vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
-            # set zero velocity if data insufficient
             vn, ve, vd = 0, 0, 0
 
         lat = self.lat0 + tn[-1] / METERS_DEG
@@ -121,8 +121,7 @@ class VIO():
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
-
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
 
@@ -140,12 +139,8 @@ class VIO():
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
 
-        good_prev = []
-        good_next = []
-
         if len(mkpts_0) >= NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
-
             mask = mask.ravel()
             good_prev = mkpts_0[mask.astype(bool)]
             good_next = mkpts_1[mask.astype(bool)]
@@ -155,7 +150,6 @@ class VIO():
 
     def detect_and_compute(self, frame):
         img = self._matcher.parse_input(frame)
-
         out = self._matcher.detectAndCompute(img)[0]
         return out
 

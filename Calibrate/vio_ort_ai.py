@@ -95,12 +95,12 @@ class VIO:
         if len(tn) >= VEL_FIT_DEPTH:
             vn = np.polyfit(ts, tn, 1)[0]
             ve = np.polyfit(ts, te, 1)[0]
-            vd = 0
+            vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
             vn, ve, vd = 0, 0, 0
 
         lat = self.lat0 + tn[-1] / METERS_DEG
-        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi)
+        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi) # used lat0 to avoid problems with wrong calculated latitude
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
 
@@ -178,6 +178,7 @@ def fetch_angles(msg):
     return angles
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
+    # Create a grid for the rectilinear image
     rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
     r = np.sqrt(rx ** 2 + ry ** 2) / focal
 

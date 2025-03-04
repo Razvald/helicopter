@@ -7,7 +7,7 @@ import numpy as np
 from time import time
 
 import vio_ort as vio_ort
-import vio_ortO as vio_ort_original
+import vio_ort_ai as vio_ort_original
 import vio_ort_ai_copy as vio_ort_ai
 # %%
 # Инициализация глобальных параметров
