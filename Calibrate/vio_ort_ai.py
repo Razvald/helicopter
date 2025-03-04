@@ -165,7 +165,7 @@ def calc_GPS_week_time():
     epoch = date(1980, 1, 6)
     epochMonday = epoch - timedelta(epoch.weekday())
     todayMonday = today - timedelta(today.weekday())
-    GPS_week = int((todayMonday - epochMonday).days // 7)
+    GPS_week = int((todayMonday - epochMonday).days / 7)
     GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute * 60000 + now.second * 1000 + int(now.microsecond / 1000)
     return GPS_week, GPS_ms
 
@@ -175,13 +175,29 @@ def fetch_angles(msg):
     return angles
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
+    # Create a grid for the rectilinear image
     rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
     r = np.sqrt(rx ** 2 + ry ** 2) / focal
+
     angle_n = np.arctan(r)
+    if fproj == 'equidistant':
+        angle_n = angle_n
+    elif fproj == 'orthographic':
+        angle_n = np.sin(angle_n)
+    elif fproj == 'stereographic':
+        angle_n = 2 * np.tan(angle_n / 2)
+    elif fproj == 'equisolid':
+        angle_n = 2 * np.sin(angle_n / 2)
+
     angle_t = np.arctan2(ry, rx)
+
     pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
     pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-    return pt_x.astype(np.float32), pt_y.astype(np.float32)
+
+    map_x = pt_x.astype(np.float32)
+    map_y = pt_y.astype(np.float32)
+
+    return map_x, map_y
 
 def preprocess_frame(frame, mask):
     return np.where(mask, frame, 0)
