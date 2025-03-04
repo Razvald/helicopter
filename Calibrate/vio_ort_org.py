@@ -13,7 +13,7 @@ from pymavlink import mavutil
 
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
- 
+
 for shape in camparam['shapes']:
     if shape['label']=='mask':
         MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
@@ -44,11 +44,11 @@ def count_none_recursive(arr):
             count += 1
     return count
 
-def pt2h(abs_pressure, temperature, P0):    
+def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure/P0) * 8.3144598 * (273.15 + temperature/100) / 9.80665 / 0.0289644
 
 class VIO():
-    
+
     def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
         self.lat0 = lat0
         self.lon0 = lon0
@@ -61,19 +61,19 @@ class VIO():
         self.P0 = None
 
     def add_trace_pt(self, frame, msg):
-        
+
         angles= fetch_angles(msg)
         height = self.fetch_height(msg)
         timestamp = time()
 
         frame = preprocess_frame(frame, MASK)
-        
-        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180 
-        
+
+        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
+
         dpp = (int(CENTER[0] + roll * 2.5),
                  int(CENTER[1] + pitch * 2.5)
         )
-        
+
         rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
 
@@ -85,7 +85,7 @@ class VIO():
                         angles=angles,
                         height=height,
                        )
-        
+
         if len(self.trace)>TRACE_DEPTH:
             self.trace = self.trace[1:]
 
@@ -95,10 +95,10 @@ class VIO():
             local_pos_metric = self.calc_pos(trace_pt)
             if local_pos_metric is None:
                 # copy previous value if no one matches found on any of the previous frames
-                trace_pt['local_posm'] = self.trace[-1]['local_posm'] 
+                trace_pt['local_posm'] = self.trace[-1]['local_posm']
             else:
                 trace_pt['local_posm'] = local_pos_metric
-        
+
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
@@ -109,14 +109,14 @@ class VIO():
             ve = np.polyfit(ts, te, 1)[0]
             vd = 0 #- np.polyfit(ts, he, 1)[0]
         else:
-            # set zero velocity if data insufficient  
+            # set zero velocity if data insufficient
             vn, ve, vd = 0, 0, 0
-            
+
         lat = self.lat0 + tn[-1] / METERS_DEG
-        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude 
+        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0/180*np.pi) # used lat0 to avoid problems with wrong calculated latitude
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
-        
+
         return dict(timestamp=float(ts[-1]),
                     to_north=float(tn[-1]),
                     to_east=float(te[-1]),
@@ -129,7 +129,7 @@ class VIO():
                     GPS_week=int(GPS_week),
                     GPS_ms=int(GPS_ms)
                    )
-        
+
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
@@ -139,7 +139,7 @@ class VIO():
 
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
-            
+
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1,1,2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
@@ -155,7 +155,7 @@ class VIO():
             return np.mean(poses, axis=0)
         else:
             return None
-                
+
     def match_points_hom(self, out0, out1):
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
@@ -168,12 +168,12 @@ class VIO():
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
             good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-        
+
             return good_prev, good_next, HoM
 
         else:
             return [], [], np.eye(3)
-        
+
     def detect_and_compute(self, frame):
         img = self._matcher.parse_input(frame)
         out = self._matcher.detectAndCompute(img)[0]
@@ -184,19 +184,19 @@ class VIO():
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
         if self.P0 != None:
             self.height = pt2h(
-                msg['SCALED_PRESSURE']['press_abs'], 
-                msg['SCALED_PRESSURE']['temperature'], 
+                msg['SCALED_PRESSURE']['press_abs'],
+                msg['SCALED_PRESSURE']['temperature'],
                 self.P0
             )
         pres =  msg['SCALED_PRESSURE']['press_abs']
         temp = msg['SCALED_PRESSURE']['temperature']
         #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
         return max(0, self.height)
-    
+
     def vio2pixhawk(self, msg):
 
         viom = msg['VIO']
-        
+
         return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
                 0, # GPS sensor id in th, e case of multiple GPS
                 FLAGS, # flags to ignore 8, 16, 32 etc
@@ -205,7 +205,7 @@ class VIO():
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
                 # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-                
+
                 viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
                 viom['GPS_week'], # GPS week number
                 3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
@@ -227,7 +227,7 @@ def calc_GPS_week_time():
     today = date.today()
     now = datetime.now()
     epoch = date(1980, 1, 6)
-    
+
     epochMonday = epoch - timedelta(epoch.weekday())
     todayMonday = today - timedelta(today.weekday())
     GPS_week = int((todayMonday - epochMonday).days / 7)
@@ -239,11 +239,11 @@ def fetch_angles(msg):
     angles['yaw'] = -angles['yaw']
     return angles
 
-        
+
 def extract_neighborhood(image, keypoint, size):
     x, y = keypoint
     half_size = size // 2
-    
+
     x_start = x - half_size
     x_end = x + half_size
     y_start = y - half_size
@@ -251,7 +251,7 @@ def extract_neighborhood(image, keypoint, size):
     # Reject keypoints too close to boundaries
     if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
         return None
-        
+
     nbh = image[y_start:y_end, x_start:x_end]
     # Reject keypoints  with mask pixels
     if np.any(nbh==0):
@@ -268,20 +268,20 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     if fproj == 'equidistant':
         angle_n = angle_n
     elif fproj == 'orthographic':
-        angle_n = np.sin(angle_n)    
+        angle_n = np.sin(angle_n)
     elif fproj == 'stereographic':
         angle_n = 2*np.tan(angle_n/2)
     elif fproj == 'equisolid':
         angle_n = 2*np.sin(angle_n/2)
-    
+
     angle_t = np.arctan2(ry, rx)
-    
+
     pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
     pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-    
+
     map_x = pt_x.astype(np.float32)
     map_y = pt_y.astype(np.float32)
-    
+
     return map_x, map_y
 
 def preprocess_frame(frame, mask):
