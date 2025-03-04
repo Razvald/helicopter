@@ -11,7 +11,7 @@ with nvtx.annotate("Init: Imports", color="dodgerblue"):
 
     import vio_ort as vio_ort
     import vio_ortO as vio_ort_original
-    import vio_ort_ai as vio_ort_ai
+    import vio_ort_ai_copy as vio_ort_ai
 # %%
 # Инициализация глобальных параметров
 with nvtx.annotate("Init: Global VIO & Params", color="dodgerblue"):
@@ -154,10 +154,13 @@ def plot_comparison(results_optimized, results_original):
 
     plt.tight_layout()
     plt.show()
-
 # %%
-#with nvtx.annotate("Plot Comparison", color="purple"):
-    #plot_comparison(results_optimized, results_original)
+results_optimized['lat_VIO'] = [lat * 1000 for lat in results_optimized['lat_VIO']]
+results_original['lat_VIO'] = [lat * 1000 for lat in results_original['lat_VIO']]
+results_ai['lat_VIO'] = [lat * 1000 for lat in results_ai['lat_VIO']]
+# %%
+with nvtx.annotate("Plot Comparison", color="purple"):
+    plot_comparison(results_optimized, results_original)
 
 # %%
 print(len(results_optimized['lat_VIO']))

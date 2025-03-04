@@ -1,13 +1,10 @@
 import json
-from time import time
-from datetime import datetime, date, timedelta
-
 import numpy as np
 import cv2
-
 from modules.xfeat_ort import XFeat
-
 from pymavlink import mavutil
+from datetime import datetime, date, timedelta
+from time import time
 
 # Load camera parameters from JSON file
 with open('fisheye_2024-09-18.json') as f:
@@ -20,8 +17,7 @@ for shape in camparam['shapes']:
         cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
         cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
 
-# Calculate camera parameters
-CENTER = np.asarray([camparam['ppx'] - 6, camparam['ppy'] + 26])  #TODO insert corrections into file
+CENTER = np.asarray([camparam['ppx'] - 6, camparam['ppy'] + 26])  # Precompute the corrected center
 FOCAL = camparam['focal']
 RAD = camparam['radius']
 CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
@@ -47,38 +43,28 @@ class VIO:
         self.P0 = None
 
     def add_trace_pt(self, frame, msg):
-        # Fetch angles and height
         angles = fetch_angles(msg)
         height = self.fetch_height(msg)
         timestamp = time()
 
-        # Preprocess frame
         frame = preprocess_frame(frame, MASK)
 
-        # Rotate image
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
         dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
         M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
         rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+        rotated = np.asarray(rotated)
 
-        # Remap and crop
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
-        # Detect and compute
-        trace_pt = dict(
-            crop=crop,
-            out = self.detect_and_compute(crop),
-            angles=angles,
-            height=height,
-        )
+        trace_pt = dict(crop=crop, out=self.detect_and_compute(crop), angles=angles, height=height)
 
-        # Update trace and track
         if len(self.trace) > TRACE_DEPTH:
             self.trace = self.trace[1:]
 
         if len(self.trace) == 0:
-            trace_pt['local_posm'] = np.asarray([0, 0])
+            trace_pt['local_posm'] = np.zeros(2)
         else:
             local_pos_metric = self.calc_pos(trace_pt)
             if local_pos_metric is None:
@@ -90,17 +76,13 @@ class VIO:
         self.trace.append(trace_pt)
         self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
 
-        # Calculate velocity
         ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
-        if len(tn) >= VEL_FIT_DEPTH:
-            vn = np.polyfit(ts, tn, 1)[0]
-            ve = np.polyfit(ts, te, 1)[0]
-            vd = 0
-        else:
-            vn, ve, vd = 0, 0, 0
+        vn = np.polyfit(ts, tn, 1)[0] if len(tn) >= VEL_FIT_DEPTH else 0
+        ve = np.polyfit(ts, te, 1)[0] if len(te) >= VEL_FIT_DEPTH else 0
+        vd = 0  # - np.polyfit(ts, he, 1)[0]
 
         lat = self.lat0 + tn[-1] / METERS_DEG
-        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi)
+        lon = self.lon0 + te[-1] / (111320 * np.cos(self.lat0 / 180 * np.pi))
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
 
@@ -124,7 +106,6 @@ class VIO:
             match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
-
             center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
@@ -132,32 +113,30 @@ class VIO:
             metric_shift = pix_shift / FOCAL * height
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
-
         return np.mean(poses, axis=0) if poses else None
 
     def match_points_hom(self, out0, out1):
         idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
-
+        good_prev, good_next = [], []
         if len(mkpts_0) >= NUM_MATCH_THR:
             HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
             mask = mask.ravel()
             good_prev = mkpts_0[mask.astype(bool)]
             good_next = mkpts_1[mask.astype(bool)]
-            return good_prev, good_next, HoM
-        else:
-            return [], [], np.eye(3)
+        return good_prev, good_next, HoM if len(mkpts_0) >= NUM_MATCH_THR else np.eye(3)
 
     def detect_and_compute(self, frame):
         img = self._matcher.parse_input(frame)
-        out = self._matcher.detectAndCompute(img)[0]
-        return out
+        return self._matcher.detectAndCompute(img)[0]
 
     def fetch_height(self, msg):
         if self.P0 is None:
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
-        return max(0, self.height)
+        pres = msg['SCALED_PRESSURE']['press_abs']
+        temp = msg['SCALED_PRESSURE']['temperature']
+        self.height = max(0, pt2h(pres, temp, self.P0))
+        return self.height
 
 def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
@@ -168,7 +147,7 @@ def calc_GPS_week_time():
     epoch = date(1980, 1, 6)
     epochMonday = epoch - timedelta(epoch.weekday())
     todayMonday = today - timedelta(today.weekday())
-    GPS_week = int((todayMonday - epochMonday).days / 7)
+    GPS_week = int((todayMonday - epochMonday).days // 7)
     GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute * 60000 + now.second * 1000 + int(now.microsecond / 1000)
     return GPS_week, GPS_ms
 
@@ -180,26 +159,11 @@ def fetch_angles(msg):
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
     r = np.sqrt(rx ** 2 + ry ** 2) / focal
-
     angle_n = np.arctan(r)
-    if fproj == 'equidistant':
-        angle_n = angle_n
-    elif fproj == 'orthographic':
-        angle_n = np.sin(angle_n)
-    elif fproj == 'stereographic':
-        angle_n = 2 * np.tan(angle_n / 2)
-    elif fproj == 'equisolid':
-        angle_n = 2 * np.sin(angle_n / 2)
-
     angle_t = np.arctan2(ry, rx)
-
     pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
     pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-
-    map_x = pt_x.astype(np.float32)
-    map_y = pt_y.astype(np.float32)
-
-    return map_x, map_y
+    return pt_x.astype(np.float32), pt_y.astype(np.float32)
 
 def preprocess_frame(frame, mask):
     return np.where(mask, frame, 0)
