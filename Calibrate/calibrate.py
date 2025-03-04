@@ -8,12 +8,10 @@ from time import time
 
 import vio_ort as vio_ort
 import vio_ort_org as vio_ort_original
-import vio_ort_ai as vio_ort_ai
 # %%
 # Инициализация глобальных параметров
 odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
-odometry_ai = vio_ort_ai.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 set_dir = '2024_12_15_15_31_8_num_3'
 json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
 start = 1000
@@ -38,7 +36,7 @@ def run_vio(odometry, json_files, start, count_json):
 
                     lat_VIO.append(result_vio['lat'])
                     lon_VIO.append(result_vio['lon'])
-                    alt_VIO.append(result_vio['alt'])
+                    alt_VIO.append(result_vio['alt'] * 1000)
 
                     lat_GPS.append(data['GNRMC'].get('lat', 0.0))
                     lon_GPS.append(data['GNRMC'].get('lon', 0.0))
@@ -63,10 +61,6 @@ print(f"Execution time for opt: {time() - timer:.2f} seconds")
 timer = time()
 results_original = run_vio(odometry_org, json_files, start, count_json)
 print(f"Execution time for org: {time() - timer:.2f} seconds")
-
-timer = time()
-results_ai = run_vio(odometry_ai, json_files, start, count_json)
-print(f"Execution time for ai: {time() - timer:.2f} seconds")
 # %%
 def calculate_errors(results):
     lat_diff = np.array(results['lat_VIO']) - np.array(results['lat_GPS'])
@@ -85,7 +79,6 @@ def calculate_errors(results):
 # %%
 errors_optimized = calculate_errors(results_optimized)
 errors_original = calculate_errors(results_original)
-errors_ai = calculate_errors(results_ai)
 # %%
 def print_errors(errors, label):
     print(f"Errors for {label}:")
@@ -93,9 +86,8 @@ def print_errors(errors, label):
     print(f"  Longitude RMSE: {errors['lon_rmse']:.10f}")
     print(f"  Altitude RMSE: {errors['alt_rmse']:.10f}")
 # %%
-"""print_errors(errors_optimized, "Optimized VIO")
+print_errors(errors_optimized, "Optimized VIO")
 print_errors(errors_original, "Original VIO")
-print_errors(errors_ai, "AI VIO")"""
 # %%
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
@@ -155,5 +147,4 @@ plot_comparison(results_optimized, results_original)
 
 # %%
 """print(len(results_optimized['lat_VIO']))
-print(len(results_original['lat_VIO']))
-print(len(results_ai['lat_VIO']))"""
+print(len(results_original['lat_VIO']))"""

@@ -153,8 +153,43 @@ class VIO:
     def fetch_height(self, msg):
         if self.P0 is None:
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
+        if self.P0 != None:
+            self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
+        pres =  msg['SCALED_PRESSURE']['press_abs']
+        temp = msg['SCALED_PRESSURE']['temperature']
+        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
         return max(0, self.height)
+
+    def vio2pixhawk(self, msg):
+
+        viom = msg['VIO']
+        
+        return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
+                0, # GPS sensor id in th, e case of multiple GPS
+                FLAGS, # flags to ignore 8, 16, 32 etc
+                # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
+                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
+                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
+                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
+                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
+                
+                viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
+                viom['GPS_week'], # GPS week number
+                3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
+                int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
+                int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
+                viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
+                1.0, # GPS HDOP horizontal dilution of precision in m
+                1.0, # GPS VDOP vertical dilution of precision in m
+                viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
+                viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
+                viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
+                0.6, # GPS speed accuracy in m/s
+                5.0, # GPS horizontal accuracy in m
+                3.0, # GPS vertical accuracy in m
+                10, # Number of satellites visible,
+                ]
+
 
 def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
@@ -173,6 +208,26 @@ def fetch_angles(msg):
     angles = msg['ATTITUDE']
     angles['yaw'] = -angles['yaw']
     return angles
+
+        
+def extract_neighborhood(image, keypoint, size):
+    x, y = keypoint
+    half_size = size // 2
+    
+    x_start = x - half_size
+    x_end = x + half_size
+    y_start = y - half_size
+    y_end = y + half_size
+    # Reject keypoints too close to boundaries
+    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
+        return None
+        
+    nbh = image[y_start:y_end, x_start:x_end]
+    # Reject keypoints  with mask pixels
+    if np.any(nbh==0):
+        return None
+    else:
+        return nbh
 
 def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     # Create a grid for the rectilinear image
@@ -201,3 +256,12 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
 
 def preprocess_frame(frame, mask):
     return np.where(mask, frame, 0)
+
+def count_none_recursive(arr):
+    count = 0
+    for item in arr:
+        if isinstance(item, list) or isinstance(item, np.ndarray):
+            count += count_none_recursive(item)
+        elif item is None:
+            count += 1
+    return count
