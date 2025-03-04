@@ -1,13 +1,10 @@
 import json
-from time import time
-from datetime import datetime, date, timedelta
-
 import numpy as np
 import cv2
-
 from modules.xfeat_ort import XFeat
-
 from pymavlink import mavutil
+from datetime import datetime, date, timedelta
+from time import time
 
 # Load camera parameters from JSON file
 with open('fisheye_2024-09-18.json') as f:
@@ -154,17 +151,9 @@ class VIO:
         return out
 
     def fetch_height(self, msg):
-        if self.P0 == None:
+        if self.P0 is None:
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        if self.P0 != None:
-            self.height = pt2h(
-                msg['SCALED_PRESSURE']['press_abs'],
-                msg['SCALED_PRESSURE']['temperature'],
-                self.P0
-            )
-        pres =  msg['SCALED_PRESSURE']['press_abs']
-        temp = msg['SCALED_PRESSURE']['temperature']
-        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
+        self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
         return max(0, self.height)
 
 def pt2h(abs_pressure, temperature, P0):

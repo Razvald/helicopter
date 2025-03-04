@@ -7,8 +7,8 @@ import numpy as np
 from time import time
 
 import vio_ort as vio_ort
-import vio_ort_ai as vio_ort_original
-import vio_ort_ai_copy as vio_ort_ai
+import vio_ortO as vio_ort_original
+import vio_ort_ai as vio_ort_ai
 # %%
 # Инициализация глобальных параметров
 odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
@@ -54,6 +54,10 @@ def run_vio(odometry, json_files, start, count_json):
 # %%
 timer = time()
 results_optimized = run_vio(odometry, json_files, start, count_json)
+print(f"Test start for cache: {time() - timer:.2f} seconds")
+
+timer = time()
+results_optimized = run_vio(odometry, json_files, start, count_json)
 print(f"Execution time for opt: {time() - timer:.2f} seconds")
 
 timer = time()
@@ -89,9 +93,9 @@ def print_errors(errors, label):
     print(f"  Longitude RMSE: {errors['lon_rmse']:.10f}")
     print(f"  Altitude RMSE: {errors['alt_rmse']:.10f}")
 # %%
-print_errors(errors_optimized, "Optimized VIO")
+"""print_errors(errors_optimized, "Optimized VIO")
 print_errors(errors_original, "Original VIO")
-print_errors(errors_ai, "AI VIO")
+print_errors(errors_ai, "AI VIO")"""
 # %%
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
@@ -150,6 +154,6 @@ def plot_comparison(results_optimized, results_original):
 plot_comparison(results_optimized, results_original)
 
 # %%
-print(len(results_optimized['lat_VIO']))
+"""print(len(results_optimized['lat_VIO']))
 print(len(results_original['lat_VIO']))
-print(len(results_ai['lat_VIO']))
+print(len(results_ai['lat_VIO']))"""
