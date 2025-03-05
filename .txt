@@ -314,3 +314,24 @@ Errors for Original VIO:
 
 Mean Latitude Difference (Optimized VIO - Original VIO): 0.0001046406
 Mean Longitude Difference (Optimized VIO - Original VIO): -0.0002353191
+
+
+)))) Теперь мы добавим масштабирование для отображения координат VIO под координаты GPS
+
+count_json = 700
+Test start for cache: 41.91 seconds
+Execution time for opt: 42.08 seconds
+Execution time for org: 49.67 seconds
+Errors for Optimized VIO:
+  Latitude RMSE: 0.0002669317
+  Longitude RMSE: 0.0003151589
+  Altitude RMSE: 884.1420737381
+Errors for Original VIO:
+  Latitude RMSE: 0.0001740886
+  Longitude RMSE: 0.0001749469
+  Altitude RMSE: 884.1420737381
+
+Mean Latitude Difference (Optimized VIO - Original VIO): 0.0001046406
+Mean Longitude Difference (Optimized VIO - Original VIO): -0.0002353191
+Mean GPS Latitude Difference (Optimized VIO - Original GPS): 0.0002478639
+Mean GPS Longitude Difference (Optimized VIO - Original GPS): -0.0002644776

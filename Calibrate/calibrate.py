@@ -89,6 +89,42 @@ def print_errors(errors, label):
 print_errors(errors_optimized, "Optimized VIO")
 print_errors(errors_original, "Original VIO")
 # %%
+# %%
+def transform_vio_coords(vio_lon_list, vio_lat_list, gps_lon_list, gps_lat_list):
+    gps_lon0 = gps_lon_list[0]
+    gps_lat0 = gps_lat_list[0]
+    vio_lon0 = vio_lon_list[0]
+    vio_lat0 = vio_lat_list[0]
+
+    gps_lon_range = max(gps_lon_list) - min(gps_lon_list)
+    gps_lat_range = max(gps_lat_list) - min(gps_lat_list)
+    vio_lon_range = max(vio_lon_list) - min(vio_lon_list)
+    vio_lat_range = max(vio_lat_list) - min(vio_lat_list)
+
+    scale_for_lon = gps_lon_range / vio_lat_range  # VIO широта -> GPS долгота
+    scale_for_lat = gps_lat_range / vio_lon_range  # VIO долгота -> GPS широта
+
+    transformed_lon = [(v_lat - vio_lat0) * scale_for_lon + gps_lon0 for v_lat in vio_lat_list]
+    transformed_lat = [-(v_lon - vio_lon0) * scale_for_lat + gps_lat0 for v_lon in vio_lon_list]
+
+    return transformed_lon, transformed_lat
+
+# Применяем трансформацию
+transformed_lon_opt, transformed_lat_opt = transform_vio_coords(
+    results_optimized['lon_VIO'], results_optimized['lat_VIO'], 
+    results_optimized['lon_GPS'], results_optimized['lat_GPS']
+)
+
+transformed_lon_org, transformed_lat_org = transform_vio_coords(
+    results_original['lon_VIO'], results_original['lat_VIO'], 
+    results_original['lon_GPS'], results_original['lat_GPS']
+)
+
+# Обновляем результаты для построения графиков
+results_optimized['lon_VIO_transformed'] = transformed_lon_opt
+results_optimized['lat_VIO_transformed'] = transformed_lat_opt
+results_original['lon_VIO_transformed'] = transformed_lon_org
+results_original['lat_VIO_transformed'] = transformed_lat_org
 
 # %%
 # Функция для построения графика с GPS и VIO
@@ -141,7 +177,57 @@ def plot_comparison(results_optimized, results_original):
 
 # %%
 plot_comparison(results_optimized, results_original)
+# %%
+# %%
+def plot_comparison_transformed(results_optimized, results_original):
+    gps_lat = results_original['lat_GPS']
+    gps_lon = results_original['lon_GPS']
+    gps_alt = results_original['alt_GPS']
 
+    vio_lat_transformed_opt = results_optimized['lat_VIO_transformed']
+    vio_lon_transformed_opt = results_optimized['lon_VIO_transformed']
+    vio_alt_opt = results_optimized['alt_VIO']
+
+    vio_lat_transformed_org = results_original['lat_VIO_transformed']
+    vio_lon_transformed_org = results_original['lon_VIO_transformed']
+    vio_alt_org = results_original['alt_VIO']
+
+    plt.figure(figsize=(18, 6))
+    # Построение широты
+    plt.subplot(1, 3, 1)
+    plt.plot(gps_lat, label='GPS Latitude', linestyle='-')
+    plt.plot(vio_lat_transformed_org, label='Original VIO Latitude (transformed)', linestyle='--')
+    plt.plot(vio_lat_transformed_opt, label='Optimized VIO Latitude (transformed)', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Latitude')
+    plt.title('Latitude Comparison (Transformed)')
+    plt.legend()
+
+    # Построение долготы
+    plt.subplot(1, 3, 2)
+    plt.plot(gps_lon, label='GPS Longitude', linestyle='-')
+    plt.plot(vio_lon_transformed_org, label='Original VIO Longitude (transformed)', linestyle='--')
+    plt.plot(vio_lon_transformed_opt, label='Optimized VIO Longitude (transformed)', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Longitude')
+    plt.title('Longitude Comparison (Transformed)')
+    plt.legend()
+
+    # Построение высоты
+    plt.subplot(1, 3, 3)
+    plt.plot(gps_alt, label='GPS Altitude', linestyle='-')
+    plt.plot(vio_alt_org, label='Original VIO Altitude', linestyle='--')
+    plt.plot(vio_alt_opt, label='Optimized VIO Altitude', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Altitude (mm)')
+    plt.title('Altitude Comparison')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# %%
+plot_comparison_transformed(results_optimized, results_original)
 # %%
 lat_diff_mean = np.mean(np.array(results_optimized['lat_VIO']) - np.array(results_original['lat_VIO']))
 lon_diff_mean = np.mean(np.array(results_optimized['lon_VIO']) - np.array(results_original['lon_VIO']))
