@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
+from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -13,13 +14,15 @@ from pymavlink import mavutil
 with open('fisheye_2024-09-18.json') as f:
     camparam = json.load(f)
 
-MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
 for shape in camparam['shapes']:
     if shape['label'] == 'mask':
+        MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
         cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
         cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
 
-CENTER = np.asarray([camparam['ppx'] - 6, camparam['ppy'] + 26])  #TODO insert corrections into file
+CENTER = [camparam['ppx'], camparam['ppy']]
+CENTER[0] += -6 #TODO insert corrections into file
+CENTER[1] += 26 #TODO insert corrections into file
 FOCAL = camparam['focal']
 RAD = camparam['radius']
 CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
@@ -32,8 +35,8 @@ METERS_DEG = 111320
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
-class VIO:
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+class VIO():
+    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
         self.lat0 = lat0
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
@@ -49,20 +52,20 @@ class VIO:
         height = self.fetch_height(msg)
         timestamp = time()
 
-        # Preprocess frame
         frame = preprocess_frame(frame, MASK)
 
-        # Rotate image
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
-        dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
-        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
-        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
 
-        # Remap and crop
+        dpp = (int(CENTER[0] + roll * 2.5),
+                 int(CENTER[1] + pitch * 2.5)
+        )
+
+        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+        rotated = np.asarray(rotated)
+
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
-        # Detect and compute
         trace_pt = dict(
             crop=crop,
             out = self.detect_and_compute(crop),
@@ -70,7 +73,6 @@ class VIO:
             height=height,
         )
 
-        # Update trace and track
         if len(self.trace) > TRACE_DEPTH:
             self.trace = self.trace[1:]
 
@@ -119,7 +121,7 @@ class VIO:
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'])
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
 
@@ -131,17 +133,23 @@ class VIO:
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
 
-        return np.mean(poses, axis=0) if poses else None
+        if len(poses):
+            return np.mean(poses, axis=0)
+        else:
+            return None
 
     def match_points_hom(self, out0, out1):
-        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
+        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1 )
         mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
 
+        good_prev = []
+        good_next = []
         if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
+
             mask = mask.ravel()
-            good_prev = mkpts_0[mask.astype(bool)]
-            good_next = mkpts_1[mask.astype(bool)]
+            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
+            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
             
             return good_prev, good_next, HoM
         else:
@@ -153,10 +161,14 @@ class VIO:
         return out
 
     def fetch_height(self, msg):
-        if self.P0 is None:
+        if self.P0 == None:
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
         if self.P0 != None:
-            self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
+            self.height = pt2h(
+                msg['SCALED_PRESSURE']['press_abs'],
+                msg['SCALED_PRESSURE']['temperature'],
+                self.P0
+            )
         pres =  msg['SCALED_PRESSURE']['press_abs']
         temp = msg['SCALED_PRESSURE']['temperature']
         #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
@@ -257,7 +269,8 @@ def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
     return map_x, map_y
 
 def preprocess_frame(frame, mask):
-    return np.where(mask, frame, 0)
+    frame = np.where(mask, frame, 0)
+    return frame
 
 def count_none_recursive(arr):
     count = 0

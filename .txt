@@ -19,6 +19,9 @@ nsys profile -t nvtx,osrt --force-overwrite=true --trace-fork-before-exec=true -
 scp orangepi@192.168.1.127:~/d.Panchenko/hp5/report_temp.* ~/My_Folder/reports_dron/
 
 
+1) Сохранить константы при преобразовании vio координат до gps
+
+
 04.03 - Используя сайт https://syntha.ai/optimizers/python я смог оптимизировать такие участки кода:
 1. Сделать копию файла vio_ort_nvtx, так как его функции также нагружают систему
 2. Параметры (CENTER) рассчитываются сразу как NumPy-массив с корректировкой, что позволяет избежать лишних преобразований.
@@ -27,7 +30,60 @@ scp orangepi@192.168.1.127:~/d.Panchenko/hp5/report_temp.* ~/My_Folder/reports_d
 5. Сокращено количество промежуточных преобразований (например, лишних вызовов np.asarray), что сокращает время обработки каждого кадра.
 6. Создан документ-отчет, содержащий данные анализа между оптимизированным кодом и оригинальным
 
-1) Осталось сделать - сохранить константы при преобразовании vio координат до gps
+Планы которые нужно сделать 05.03:
+1) Используя оригинальный код vio_ort, сравнивать каждое новое изменение по сравнению с новым оптимизированным. Определить что именно добавляет к погрешности координат
+
+))))))))))))))
+Начало отчета
+Засечем стандарты
+))import vio_ort_org as vio_ort_original
+)count_json = 100
+Execution time for org: 10.23 seconds
+Errors for Original VIO:
+  Latitude RMSE: 0.0002518033
+  Longitude RMSE: 0.0001586097
+  Altitude RMSE: 1052.1405522614
+
+)count_json = 700
+Execution time for org: 52.24 seconds
+Errors for Original VIO:
+  Latitude RMSE: 0.0001740886
+  Longitude RMSE: 0.0001749469
+  Altitude RMSE: 884.1420737381
+
+))import vio_ort_org_copy as vio_ort_original
+)count_json = 100
+Execution time for org: 11.33 seconds
+Errors for Original VIO:
+  Latitude RMSE: 0.0002518033
+  Longitude RMSE: 0.0001586097
+  Altitude RMSE: 1052.1405522614
+
+)count_json = 700
+Execution time for org: 54.97 seconds
+Errors for Original VIO:
+  Latitude RMSE: 0.0001740886
+  Longitude RMSE: 0.0001749469
+  Altitude RMSE: 884.1420737381
 
 
+)))Теперь начнем с изменениями
 
+import vio_ort_org as vio_ort_original
+1. Изменить
+from PIL import Image
+rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+На
+M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+
+
+В одиночном способе
+count_json = 1000
+Execution time for org: 56.50 seconds
+Errors for Original VIO:
+  Latitude RMSE: 0.0001740886
+  Longitude RMSE: 0.0001749469
+  Altitude RMSE: 884.1420737381
+
+В сравнении
