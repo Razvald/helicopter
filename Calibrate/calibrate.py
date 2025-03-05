@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from time import time
 
-import vio_ort_org_copy as vio_ort
+import vio_ort as vio_ort
 import vio_ort_org as vio_ort_original
 # %%
 # Инициализация глобальных параметров
@@ -15,7 +15,7 @@ odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 set_dir = '2024_12_15_15_31_8_num_3'
 json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
 start = 1000
-count_json = 100
+count_json = 700
 lat_VIO, lon_VIO, alt_VIO = [], [], []
 lat_GPS, lon_GPS, alt_GPS = [], [], []
 
@@ -51,7 +51,7 @@ def run_vio(odometry, json_files, start, count_json):
     }
 # %%
 timer = time()
-results_optimized = run_vio(odometry, json_files, start, count_json)
+results_test_cache = run_vio(odometry, json_files, start, count_json)
 print(f"Test start for cache: {time() - timer:.2f} seconds")
 
 timer = time()
@@ -89,6 +89,8 @@ def print_errors(errors, label):
 print_errors(errors_optimized, "Optimized VIO")
 print_errors(errors_original, "Original VIO")
 # %%
+
+# %%
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
     vio_lat_org = results_original['lat_VIO']
@@ -99,10 +101,41 @@ def plot_comparison(results_optimized, results_original):
     vio_lon_opt = results_optimized['lon_VIO']
     vio_alt_opt = results_optimized['alt_VIO']
     
-    plt.figure(figsize=(18, 6))
-    
-    
+    gps_lat = results_original['lat_GPS']
+    gps_lon = results_original['lon_GPS']
+    gps_alt = results_original['alt_GPS']
 
+    # Построение графиков широты
+    plt.figure(figsize=(18, 6))
+    plt.subplot(1, 3, 1)
+    plt.plot(vio_lat_org, label='Original VIO Latitude', linestyle='--')
+    plt.plot(vio_lat_opt, label='Optimized VIO Latitude', linestyle='-.')
+    plt.plot(gps_lat, label='GPS Latitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Latitude')
+    plt.title('Latitude Comparison')
+    plt.legend()
+    
+    # Построение графиков долготы
+    plt.subplot(1, 3, 2)
+    plt.plot(vio_lon_org, label='Original VIO Longitude', linestyle='--')
+    plt.plot(vio_lon_opt, label='Optimized VIO Longitude', linestyle='-.')
+    plt.plot(gps_lon, label='GPS Longitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Longitude')
+    plt.title('Longitude Comparison')
+    plt.legend()
+    
+    # Построение графиков высоты
+    plt.subplot(1, 3, 3)
+    plt.plot(vio_alt_org, label='Original VIO Altitude', linestyle='--')
+    plt.plot(vio_alt_opt, label='Optimized VIO Altitude', linestyle='-.')
+    plt.plot(gps_alt, label='GPS Altitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Altitude (mm)')
+    plt.title('Altitude Comparison')
+    plt.legend()
+    
     plt.tight_layout()
     plt.show()
 
@@ -112,6 +145,10 @@ plot_comparison(results_optimized, results_original)
 # %%
 lat_diff_mean = np.mean(np.array(results_optimized['lat_VIO']) - np.array(results_original['lat_VIO']))
 lon_diff_mean = np.mean(np.array(results_optimized['lon_VIO']) - np.array(results_original['lon_VIO']))
+gps_lat_diff_mean = np.mean(np.array(results_optimized['lat_VIO']) - np.array(results_original['lat_GPS']))
+gps_lon_diff_mean = np.mean(np.array(results_optimized['lon_VIO']) - np.array(results_original['lon_GPS']))
 
 print(f"Mean Latitude Difference (Optimized VIO - Original VIO): {lat_diff_mean:.10f}")
 print(f"Mean Longitude Difference (Optimized VIO - Original VIO): {lon_diff_mean:.10f}")
+print(f"Mean GPS Latitude Difference (Optimized VIO - Original GPS): {gps_lat_diff_mean:.10f}")
+print(f"Mean GPS Longitude Difference (Optimized VIO - Original GPS): {gps_lon_diff_mean:.10f}")

@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from time import time
 
-import vio_ort_org_copy as vio_ort_original
+import vio_ort_org as vio_ort_original
 # %%
 # Инициализация глобальных параметров
 odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)

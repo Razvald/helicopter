@@ -278,3 +278,39 @@ Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,000000061
 )  rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
 
 )  HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
+
+
+)-)-)-)Как итог, заменяем vio_ort_org из vio_ort_org_copy.
+Запустив сверку, были получены данные значения
+import vio_ort as vio_ort
+import vio_ort_org as vio_ort_original
+count_json = 700
+Test start for cache: 8.41 seconds
+Execution time for opt: 8.20 seconds
+Execution time for org: 11.06 seconds
+Errors for Optimized VIO:
+  Latitude RMSE: 0.0002538565
+  Longitude RMSE: 0.0001441549
+Errors for Original VIO:
+  Latitude RMSE: 0.0002518033
+  Longitude RMSE: 0.0001586097
+
+Mean Latitude Difference (Optimized VIO - Original VIO): 0.0000020542
+Mean Longitude Difference (Optimized VIO - Original VIO): -0.0000144786
+
+
+count_json = 700
+Test start for cache: 56.89 seconds
+Execution time for opt: 53.96 seconds
+Execution time for org: 64.39 seconds
+Errors for Optimized VIO:
+  Latitude RMSE: 0.0002669317
+  Longitude RMSE: 0.0003151589
+  Altitude RMSE: 884.1420737381
+Errors for Original VIO:
+  Latitude RMSE: 0.0001740886
+  Longitude RMSE: 0.0001749469
+  Altitude RMSE: 884.1420737381
+
+Mean Latitude Difference (Optimized VIO - Original VIO): 0.0001046406
+Mean Longitude Difference (Optimized VIO - Original VIO): -0.0002353191
