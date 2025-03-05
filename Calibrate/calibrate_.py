@@ -6,14 +6,14 @@ import cv2
 import numpy as np
 from time import time
 
-import vio_ort_org as vio_ort_original
+import vio_ort_org_copy as vio_ort_original
 # %%
 # Инициализация глобальных параметров
 odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 set_dir = '2024_12_15_15_31_8_num_3'
 json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
 start = 1000
-count_json = 700
+count_json = 100
 lat_VIO, lon_VIO, alt_VIO = [], [], []
 lat_GPS, lon_GPS, alt_GPS = [], [], []
 

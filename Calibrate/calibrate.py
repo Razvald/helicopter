@@ -91,40 +91,17 @@ print_errors(errors_original, "Original VIO")
 # %%
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
+    vio_lat_org = results_original['lat_VIO']
+    vio_lon_org = results_original['lon_VIO']
+    vio_alt_org = results_original['alt_VIO']
+    
+    vio_lat_opt = results_optimized['lat_VIO']
+    vio_lon_opt = results_optimized['lon_VIO']
+    vio_alt_opt = results_optimized['alt_VIO']
+    
     plt.figure(figsize=(18, 6))
     
-    # Построим график для широты
-    plt.subplot(1, 3, 1)
-    plt.plot(results_optimized['lon_VIO'], results_optimized['lat_VIO'], label="Optimized VIO", color="red", alpha=0.7)
-    plt.plot(results_original['lon_VIO'], results_original['lat_VIO'], label="Original VIO", color="blue", alpha=0.7)
-    plt.xlabel('Longitude')
-    plt.ylabel('Latitude')
-    plt.title('Latitude vs Longitude')
-    plt.legend()
-
-    # Построим график для высоты
-    plt.subplot(1, 3, 2)
-    plt.plot(results_optimized['lat_GPS'], results_optimized['alt_VIO'], label="Optimized VIO", color="red", alpha=0.7)
-    plt.plot(results_original['lat_GPS'], results_original['alt_VIO'], label="Original VIO", color="blue", alpha=0.7)
-    plt.plot(results_optimized['lat_GPS'], results_optimized['alt_GPS'], label="GPS", color="green", linestyle='--', alpha=0.6)
-    plt.xlabel('Latitude')
-    plt.ylabel('Altitude')
-    plt.title('Altitude vs Latitude')
-    plt.legend()
-
-    # Построим график для ошибок в координатах
-    plt.subplot(1, 3, 3)
-    lat_error_opt = np.array(results_optimized['lat_VIO']) - np.array(results_optimized['lat_GPS'])
-    lon_error_opt = np.array(results_optimized['lon_VIO']) - np.array(results_optimized['lon_GPS'])
-    lat_error_orig = np.array(results_original['lat_VIO']) - np.array(results_original['lat_GPS'])
-    lon_error_orig = np.array(results_original['lon_VIO']) - np.array(results_original['lon_GPS'])
-
-    plt.plot(lat_error_opt, lon_error_opt, label="Optimized VIO", color="red", alpha=0.7)
-    plt.plot(lat_error_orig, lon_error_orig, label="Original VIO", color="blue", alpha=0.7)
-    plt.xlabel('Latitude Error')
-    plt.ylabel('Longitude Error')
-    plt.title('Error in Latitude and Longitude')
-    plt.legend()
+    
 
     plt.tight_layout()
     plt.show()
