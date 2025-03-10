@@ -1,47 +1,39 @@
-# %%
 import os
 import csv
 import cv2
 import json
+import math
 import numpy as np
 from time import time
 import matplotlib.pyplot as plt
 
 import vio_ort_exp as vio_ort
 import vio_ort_org as vio_ort_original
-# %%
-# Инициализация глобальных параметров
+
+# Инициализация параметров
 odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
 set_dir = '2024_12_15_15_31_8_num_3'
 json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
 start = 1000
-count_json = 100
-lat_VIO, lon_VIO, alt_VIO = [], [], []
-lat_GPS, lon_GPS, alt_GPS = [], [], []
+count_json = 1000
 
-# %%
 def run_vio(odometry, json_files, start, count_json):
     lat_VIO, lon_VIO, alt_VIO = [], [], []
     lat_GPS, lon_GPS, alt_GPS = [], [], []
-
     for filename in json_files[start:start + count_json]:
         with open(f'{set_dir}/{filename}', 'r') as file:
             data = json.load(file)
-            if 'GNRMC' in data:
-                if data['GNRMC']['status'] == 'A':
-                    img_path = set_dir + '/' + os.path.splitext(filename)[0] + '.jpg'
-                    image = cv2.imread(img_path)
-
-                    result_vio = odometry.add_trace_pt(image, data)
-
-                    lat_VIO.append(result_vio['lat'])
-                    lon_VIO.append(result_vio['lon'])
-                    alt_VIO.append(result_vio['alt'] * 1000)
-
-                    lat_GPS.append(data['GNRMC'].get('lat', 0.0))
-                    lon_GPS.append(data['GNRMC'].get('lon', 0.0))
-                    alt_GPS.append(data['GPS_RAW_INT']['alt'])
+            if 'GNRMC' in data and data['GNRMC']['status'] == 'A':
+                img_path = os.path.join(set_dir, os.path.splitext(filename)[0] + '.jpg')
+                image = cv2.imread(img_path)
+                result_vio = odometry.add_trace_pt(image, data)
+                lat_VIO.append(result_vio['lat'])
+                lon_VIO.append(result_vio['lon'])
+                alt_VIO.append(result_vio['alt'] * 1000)
+                lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+                alt_GPS.append(data['GPS_RAW_INT']['alt'])
     return {
         'lat_VIO': lat_VIO,
         'lon_VIO': lon_VIO,
@@ -50,47 +42,22 @@ def run_vio(odometry, json_files, start, count_json):
         'lon_GPS': lon_GPS,
         'alt_GPS': alt_GPS,
     }
-# %%
-timer = time()
-#results_test_cache = run_vio(odometry, json_files, start, count_json)
-print(f"Test start for cache: {time() - timer:.2f} seconds")
 
-timer = time()
+start_time = time()
+#run_vio(odometry, json_files, start, count_json)
+elapsed_time = time() - start_time
+print(f"Elapsed time: {elapsed_time:.2f} seconds")
+
+start_time = time()
 results_optimized = run_vio(odometry, json_files, start, count_json)
-print(f"Execution time for opt: {time() - timer:.2f} seconds")
+opt_elapsed_time = time() - start_time
+print(f"Elapsed time: {opt_elapsed_time:.2f} seconds")
 
-timer = time()
+start_time = time()
 results_original = run_vio(odometry_org, json_files, start, count_json)
-print(f"Execution time for org: {time() - timer:.2f} seconds")
-# %%
-def calculate_errors(results):
-    lat_diff = np.array(results['lat_VIO']) - np.array(results['lat_GPS'])
-    lon_diff = np.array(results['lon_VIO']) - np.array(results['lon_GPS'])
-    alt_diff = np.array(results['alt_VIO']) - np.array(results['alt_GPS'])
+org_elapsed_time = time() - start_time
+print(f"Elapsed time: {org_elapsed_time:.2f} seconds")
 
-    lat_rmse = np.sqrt(np.mean(lat_diff**2))
-    lon_rmse = np.sqrt(np.mean(lon_diff**2))
-    alt_rmse = np.sqrt(np.mean(alt_diff**2))
-
-    return {
-        'lat_rmse': lat_rmse,
-        'lon_rmse': lon_rmse,
-        'alt_rmse': alt_rmse
-    }
-# %%
-errors_optimized = calculate_errors(results_optimized)
-errors_original = calculate_errors(results_original)
-# %%
-def print_errors(errors, label):
-    print(f"Errors for {label}:")
-    print(f"  Latitude RMSE: {errors['lat_rmse']:.10f}")
-    print(f"  Longitude RMSE: {errors['lon_rmse']:.10f}")
-    print(f"  Altitude RMSE: {errors['alt_rmse']:.10f}")
-# %%
-print_errors(errors_optimized, "Optimized VIO")
-print_errors(errors_original, "Original VIO")
-# %%
-# %%
 def transform_vio_coords(vio_lon_list, vio_lat_list, gps_lon_list, gps_lat_list):
     gps_lon0 = gps_lon_list[0]
     gps_lat0 = gps_lat_list[0]
@@ -112,12 +79,12 @@ def transform_vio_coords(vio_lon_list, vio_lat_list, gps_lon_list, gps_lat_list)
 
 # Применяем трансформацию
 transformed_lon_opt, transformed_lat_opt = transform_vio_coords(
-    results_optimized['lon_VIO'], results_optimized['lat_VIO'], 
+    results_optimized['lon_VIO'], results_optimized['lat_VIO'],
     results_optimized['lon_GPS'], results_optimized['lat_GPS']
 )
 
 transformed_lon_org, transformed_lat_org = transform_vio_coords(
-    results_original['lon_VIO'], results_original['lat_VIO'], 
+    results_original['lon_VIO'], results_original['lat_VIO'],
     results_original['lon_GPS'], results_original['lat_GPS']
 )
 
@@ -127,21 +94,37 @@ results_optimized['lat_VIO_transformed'] = transformed_lat_opt
 results_original['lon_VIO_transformed'] = transformed_lon_org
 results_original['lat_VIO_transformed'] = transformed_lat_org
 
-# %%
+# Вывод последних координат для проверки
+print("Last GPS coordinates:")
+print(f"Latitude: {results_optimized['lat_GPS'][-1]}")
+print(f"Longitude: {results_optimized['lon_GPS'][-1]}")
+print("Last VIO original coordinates:")
+print(f"Latitude: {results_original['lat_VIO'][-1]}")
+print(f"Longitude: {results_original['lon_VIO'][-1]}")
+print("Last VIO original transformed coordinates:")
+print(f"Latitude: {results_original['lat_VIO_transformed'][-1]}")
+print(f"Longitude: {results_original['lon_VIO_transformed'][-1]}")
+print("Last VIO optimized coordinates:")
+print(f"Latitude: {results_optimized['lat_VIO'][-1]}")
+print(f"Longitude: {results_optimized['lon_VIO'][-1]}")
+print("Last VIO optimized transformed coordinates:")
+print(f"Latitude: {results_optimized['lat_VIO_transformed'][-1]}")
+print(f"Longitude: {results_optimized['lon_VIO_transformed'][-1]}")
+
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
     vio_lat_org = results_original['lat_VIO']
     vio_lon_org = results_original['lon_VIO']
     vio_alt_org = results_original['alt_VIO']
-    
+
     vio_lat_opt = results_optimized['lat_VIO']
     vio_lon_opt = results_optimized['lon_VIO']
     vio_alt_opt = results_optimized['alt_VIO']
-    
+
     gps_lat = results_original['lat_GPS']
     gps_lon = results_original['lon_GPS']
     gps_alt = results_original['alt_GPS']
-    
+
     vio_lat_transformed_opt = results_optimized['lat_VIO_transformed']
     vio_lon_transformed_opt = results_optimized['lon_VIO_transformed']
 
@@ -158,7 +141,7 @@ def plot_comparison(results_optimized, results_original):
     plt.ylabel('Latitude')
     plt.title('Latitude Comparison')
     plt.legend()
-    
+
     # Построение графиков долготы
     plt.subplot(2, 3, 2)
     plt.plot(vio_lon_org, label='Original VIO Longitude', linestyle='--')
@@ -168,7 +151,7 @@ def plot_comparison(results_optimized, results_original):
     plt.ylabel('Longitude')
     plt.title('Longitude Comparison')
     plt.legend()
-    
+
     # Построение графиков высоты
     plt.subplot(2, 3, 3)
     plt.plot(vio_alt_org, label='Original VIO Altitude', linestyle='--')
@@ -178,7 +161,7 @@ def plot_comparison(results_optimized, results_original):
     plt.ylabel('Altitude (mm)')
     plt.title('Altitude Comparison')
     plt.legend()
-    
+
     # Построение широты
     plt.subplot(2, 3, 4)
     plt.plot(gps_lat, label='GPS Latitude', linestyle='-')
@@ -208,67 +191,58 @@ def plot_comparison(results_optimized, results_original):
     plt.ylabel('Altitude (mm)')
     plt.title('Altitude Comparison')
     plt.legend()
-    
+
     plt.tight_layout()
     plt.show()
 
-# %%
 #plot_comparison(results_optimized, results_original)
 
-# %%
-def save_results_to_csv(filename, errors_optimized, errors_original, lat_diff_mean, lon_diff_mean, gps_lat_diff_mean, gps_lon_diff_mean, comment):
-    # Проверяем, существует ли файл
+# Функция для вычисления расстояния между двумя точками в метрах
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371000  # радиус Земли в метрах
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+def save_results_to_csv(filename, results_optimized, results_original, comment):
     file_exists = os.path.isfile(filename)
-    
-    with open(filename, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        
-        # Если файл создается впервые, добавляем заголовки
+    with open(filename, mode='w', newline='') as f:
+        writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "Comment", "Latitude RMSE (Optimized)", "Latitude RMSE (Original)", 
-                "Mean Latitude Diff (Opt - Org)", "Mean Latitude Diff (Opt - GPS)",
-                "Longitude RMSE (Optimized)", "Longitude RMSE (Original)",
-                "Mean Longitude Diff (Opt - Org)", "Mean Longitude Diff (Opt - GPS)",
-                "Altitude RMSE (Optimized)", "Altitude RMSE (Original)"
+                "Comment", "Index", "GPS Latitude", "GPS Longitude",
+                "Original Latitude", "Original Longitude", "Diff GPS-Orig (m)",
+                "Original Transformed Latitude", "Original Transformed Longitude", "Diff GPS-Orig Trans (m)",
+                "Optimized Latitude", "Optimized Longitude", "Diff GPS-Opt (m)",
+                "Optimized Transformed Latitude", "Optimized Transformed Longitude", "Diff GPS-Opt Trans (m)"
             ])
-        
-        # Записываем данные
-        writer.writerow([
-            comment,
-            errors_optimized['lat_rmse'], errors_original['lat_rmse'], 
-            lat_diff_mean, gps_lat_diff_mean,
-            errors_optimized['lon_rmse'], errors_original['lon_rmse'], 
-            lon_diff_mean, gps_lon_diff_mean,
-            errors_optimized['alt_rmse'], errors_original['alt_rmse']
-        ])
 
-# %%
-lat_diff_mean = np.mean(np.array(results_optimized['lat_VIO']) - np.array(results_original['lat_VIO']))
-lon_diff_mean = np.mean(np.array(results_optimized['lon_VIO']) - np.array(results_original['lon_VIO']))
-gps_lat_diff_mean = np.mean(np.array(results_optimized['lat_VIO']) - np.array(results_original['lat_GPS']))
-gps_lon_diff_mean = np.mean(np.array(results_optimized['lon_VIO']) - np.array(results_original['lon_GPS']))
+        for i in range(len(results_original['lat_GPS'])):
+            # Координаты
+            gps_lat, gps_lon = results_original['lat_GPS'][i], results_original['lon_GPS'][i]
+            org_lat, org_lon = results_original['lat_VIO'][i], results_original['lon_VIO'][i]
+            org_trans_lat, org_trans_lon = results_original['lat_VIO_transformed'][i], results_original['lon_VIO_transformed'][i]
+            opt_lat, opt_lon = results_optimized['lat_VIO'][i], results_optimized['lon_VIO'][i]
+            opt_trans_lat, opt_trans_lon = results_optimized['lat_VIO_transformed'][i], results_optimized['lon_VIO_transformed'][i]
 
-#print(f"Mean Latitude Difference (Optimized VIO - Original VIO): {lat_diff_mean:.10f}")
-#print(f"Mean Longitude Difference (Optimized VIO - Original VIO): {lon_diff_mean:.10f}")
-#print(f"Mean GPS Latitude Difference (Optimized VIO - Original GPS): {gps_lat_diff_mean:.10f}")
-#print(f"Mean GPS Longitude Difference (Optimized VIO - Original GPS): {gps_lon_diff_mean:.10f}")
+            # Расчёт расстояний
+            diff_gps_org = haversine(gps_lat, gps_lon, org_lat, org_lon)
+            diff_gps_org_trans = haversine(gps_lat, gps_lon, org_trans_lat, org_trans_lon)
+            diff_gps_opt = haversine(gps_lat, gps_lon, opt_lat, opt_lon)
+            diff_gps_opt_trans = haversine(gps_lat, gps_lon, opt_trans_lat, opt_trans_lon)
 
-# %%
-# Пример использования
-comment = "Start compare on 100. 2 check"
-comment = "Change top_k to 256, detection_threshold to 0.01. 2 check"
-comment = "Start compare on 100. 2 check"
+            # Запись строки
+            writer.writerow([
+                comment, i, gps_lat, gps_lon,
+                org_lat, org_lon, diff_gps_org,
+                org_trans_lat, org_trans_lon, diff_gps_org_trans,
+                opt_lat, opt_lon, diff_gps_opt,
+                opt_trans_lat, opt_trans_lon, diff_gps_opt_trans
+            ])
 
+comment = "1000. Change PIL to CV2"
 csv_filename = "vio_comparison_results.csv"
-save_results_to_csv(
-    csv_filename,
-    errors_optimized,
-    errors_original,
-    lat_diff_mean,
-    lon_diff_mean,
-    gps_lat_diff_mean,
-    gps_lon_diff_mean,
-    comment
-)
+save_results_to_csv(csv_filename, results_optimized, results_original, comment)
 print(f"Results appended to {csv_filename}.")

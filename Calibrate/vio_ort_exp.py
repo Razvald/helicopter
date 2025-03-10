@@ -4,7 +4,6 @@ from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
-from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -70,11 +69,14 @@ class VIO():
 
         dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
 
-        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
         rotated = np.asarray(rotated)
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        #crop = cv2.remap(rotated, map_x, map_y, cv2.INTER_LINEAR, cv2.BORDER_CONSTANT)
+
 
         trace_pt = dict(
             crop=crop,

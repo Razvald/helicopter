@@ -1,455 +1,240 @@
-Ты работаешь над проектом управления дроном с использованием визуальной инерциальной одометрии (VIO).
-Основная цель — улучшение FPS обработки в реальном времени и уменьшение ошибок в расчетах координат (RMSE).
-Используешь Python, библиотеку OpenCV, а также методы профилирования и оптимизации кода.
-
-vio_ort_org.py
-import json
-from time import time
-from datetime import datetime, date, timedelta
-
-import numpy as np
+import os
+import csv
 import cv2
-from PIL import Image
-
-from modules.xfeat_ort import XFeat
-
-from pymavlink import mavutil
-
-
-with open('fisheye_2024-09-18.json') as f:
-    camparam = json.load(f)
-
-for shape in camparam['shapes']:
-    if shape['label'] == 'mask':
-        MASK = np.zeros((camparam['imageHeight'], camparam['imageWidth'], 3), dtype=np.uint8)
-        cnt = np.asarray(shape['points']).reshape(-1, 1, 2).astype(np.int32)
-        cv2.drawContours(MASK, [cnt], -1, (255, 255, 255), -1)
-
-CENTER = [camparam['ppx'], camparam['ppy']]
-CENTER[0] += -6 #TODO insert corrections into file
-CENTER[1] += 26 #TODO insert corrections into file
-FOCAL = camparam['focal']
-RAD = camparam['radius']
-CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
-
-HOMO_THR = 2.0
-NUM_MATCH_THR = 8
-TRACE_DEPTH = 8
-VEL_FIT_DEPTH = TRACE_DEPTH
-METERS_DEG = 111320
-
-FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
-
-def count_none_recursive(arr):
-    count = 0
-    for item in arr:
-        if isinstance(item, list) or isinstance(item, np.ndarray):
-            count += count_none_recursive(item)
-        elif item is None:
-            count += 1
-    return count
-
-def pt2h(abs_pressure, temperature, P0):
-    return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
-
-class VIO():
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
-        self.lat0 = lat0
-        self.lon0 = lon0
-        self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
-        self.track = []
-        self.trace = []
-        self.prev = None
-        self.HoM = None
-        self.height = 0
-        self.P0 = None
-
-    def add_trace_pt(self, frame, msg):
-        angles = fetch_angles(msg)
-        height = self.fetch_height(msg)
-        timestamp = time()
-
-        frame = preprocess_frame(frame, MASK)
-
-        roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
-
-        dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
-
-        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
-        rotated = np.asarray(rotated)
-
-        map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
-        crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-
-        trace_pt = dict(
-            crop=crop,
-            out = self.detect_and_compute(crop),
-            angles=angles,
-            height=height,
-        )
-
-        if len(self.trace) > TRACE_DEPTH:
-            self.trace = self.trace[1:]
-
-        if len(self.trace) == 0:
-            trace_pt['local_posm'] = np.asarray([0, 0])
-        else:
-            local_pos_metric = self.calc_pos(trace_pt)
-            if local_pos_metric is None:
-                # copy previous value if no one matches found on any of the previous frames
-                trace_pt['local_posm'] = self.trace[-1]['local_posm']
-            else:
-                trace_pt['local_posm'] = local_pos_metric
-
-        self.trace.append(trace_pt)
-        self.track.append(np.hstack((timestamp, trace_pt['local_posm'], height)))
-
-        ts, tn, te, he = np.asarray(self.track[-VEL_FIT_DEPTH:]).T
-        if len(tn) >= VEL_FIT_DEPTH:
-            # enough data to calculate velocity
-            vn = np.polyfit(ts, tn, 1)[0]
-            ve = np.polyfit(ts, te, 1)[0]
-            vd = 0 #- np.polyfit(ts, he, 1)[0]
-        else:
-            # set zero velocity if data insufficient
-            vn, ve, vd = 0, 0, 0
-
-        lat = self.lat0 + tn[-1] / METERS_DEG
-        lon = self.lon0 + te[-1] / 111320 / np.cos(self.lat0 / 180 * np.pi) # used lat0 to avoid problems with wrong calculated latitude
-        alt = he[-1]
-        GPS_week, GPS_ms = calc_GPS_week_time()
-
-        return dict(
-            timestamp=float(ts[-1]),
-            to_north=float(tn[-1]),
-            to_east=float(te[-1]),
-            lat=float(lat),
-            lon=float(lon),
-            alt=float(alt),
-            veln=float(vn),
-            vele=float(ve),
-            veld=float(vd),
-            GPS_week=int(GPS_week),
-            GPS_ms=int(GPS_ms)
-        )
-
-    def calc_pos(self, next_pt):
-        poses = []
-        for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
-            if len(match_prev) <= NUM_MATCH_THR:
-                continue
-
-            center_proj = cv2.perspectiveTransform(CROP_CENTER.reshape(-1, 1, 2), HoM).ravel()
-            pix_shift = CROP_CENTER - center_proj
-            pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
-            height = np.mean([prev_pt['height'], next_pt['height']])
-            metric_shift = pix_shift / FOCAL * height
-            local_pos = prev_pt['local_posm'] + metric_shift
-            poses.append(local_pos)
-
-        if len(poses):
-            return np.mean(poses, axis=0)
-        else:
-            return None
-
-    def match_points_hom(self, out0, out1):
-        idxs0, idxs1 = self._matcher.match(out0['descriptors'], out1['descriptors'], min_cossim=-1)
-        mkpts_0, mkpts_1 = out0['keypoints'][idxs0].numpy(), out1['keypoints'][idxs1].numpy()
-
-        good_prev = []
-        good_next = []
-        if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-
-            mask = mask.ravel()
-            good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
-            good_next = np.asarray([pt for ii, pt in enumerate(mkpts_1) if mask[ii]])
-
-            return good_prev, good_next, HoM
-        else:
-            return [], [], np.eye(3)
-
-    def detect_and_compute(self, frame):
-        img = self._matcher.parse_input(frame)
-        out = self._matcher.detectAndCompute(img)[0]
-        return out
-
-    def fetch_height(self, msg):
-        if self.P0 == None:
-            self.P0 = msg['SCALED_PRESSURE']['press_abs']
-        if self.P0 != None:
-            self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
-        pres =  msg['SCALED_PRESSURE']['press_abs']
-        temp = msg['SCALED_PRESSURE']['temperature']
-        #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
-        return max(0, self.height)
-
-    def vio2pixhawk(self, msg):
-
-        viom = msg['VIO']
-
-        return  [int(viom['timestamp']*10**6), # Timestamp (micros since boot or Unix epoch)
-                0, # GPS sensor id in th, e case of multiple GPS
-                FLAGS, # flags to ignore 8, 16, 32 etc
-                # (mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_HORIZ |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_SPEED_ACCURACY) |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY |
-                # mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY,
-
-                viom['GPS_ms'], # GPS time (milliseconds from start of GPS week)
-                viom['GPS_week'], # GPS week number
-                3, # 0-1: no fix, 2: 2D fix, 3: 3D fix. 4: 3D with DGPS. 5: 3D with RTK
-                int(viom['lat']*10**7), # Latitude (WGS84), in degrees * 1E7
-                int(viom['lon']*10**7), # Longitude (WGS84), in degrees * 1E7
-                viom['alt'], # Altitude (AMSL, not WGS84), in m (positive for up)
-                1.0, # GPS HDOP horizontal dilution of precision in m
-                1.0, # GPS VDOP vertical dilution of precision in m
-                viom['veln'], # GPS velocity in m/s in NORTH direction in earth-fixed NED frame
-                viom['vele'], # GPS velocity in m/s in EAST direction in earth-fixed NED frame
-                viom['veld'], # GPS velocity in m/s in DOWN direction in earth-fixed NED frame
-                0.6, # GPS speed accuracy in m/s
-                5.0, # GPS horizontal accuracy in m
-                3.0, # GPS vertical accuracy in m
-                10, # Number of satellites visible,
-                ]
-
-def calc_GPS_week_time():
-    today = date.today()
-    now = datetime.now()
-    epoch = date(1980, 1, 6)
-
-    epochMonday = epoch - timedelta(epoch.weekday())
-    todayMonday = today - timedelta(today.weekday())
-    GPS_week = int((todayMonday - epochMonday).days / 7)
-    GPS_ms = ((today - todayMonday).days * 24 + now.hour) * 3600000 + now.minute * 60000 + now.second * 1000 + int(now.microsecond / 1000)
-    return GPS_week, GPS_ms
-
-def fetch_angles(msg):
-    angles = msg['ATTITUDE']
-    angles['yaw'] = -angles['yaw']
-    return angles
-
-
-def extract_neighborhood(image, keypoint, size):
-    x, y = keypoint
-    half_size = size // 2
-
-    x_start = x - half_size
-    x_end = x + half_size
-    y_start = y - half_size
-    y_end = y + half_size
-    # Reject keypoints too close to boundaries
-    if x_start<0 or x_end>image.shape[1] or y_start<0 or y_end>image.shape[0]:
-        return None
-
-    nbh = image[y_start:y_end, x_start:x_end]
-    # Reject keypoints  with mask pixels
-    if np.any(nbh==0):
-        return None
-    else:
-        return nbh
-
-def fisheye2rectilinear(focal, pp, rw, rh, fproj='equidistant'):
-    # Create a grid for the rectilinear image
-    rx, ry = np.meshgrid(np.arange(rw) - rw // 2, np.arange(rh) - rh // 2)
-    r = np.sqrt(rx ** 2 + ry ** 2) / focal
-
-    angle_n = np.arctan(r)
-    if fproj == 'equidistant':
-        angle_n = angle_n
-    elif fproj == 'orthographic':
-        angle_n = np.sin(angle_n)
-    elif fproj == 'stereographic':
-        angle_n = 2 * np.tan(angle_n / 2)
-    elif fproj == 'equisolid':
-        angle_n = 2 * np.sin(angle_n / 2)
-
-    angle_t = np.arctan2(ry, rx)
-
-    pt_x = focal * angle_n * np.cos(angle_t) + pp[0]
-    pt_y = focal * angle_n * np.sin(angle_t) + pp[1]
-
-    map_x = pt_x.astype(np.float32)
-    map_y = pt_y.astype(np.float32)
-
-    return map_x, map_y
-
-def preprocess_frame(frame, mask):
-    frame = np.where(mask, frame, 0)
-    return frame
-
-
-))))))))))))))
-Начало отчета
-Засечем стандарты
-))import vio_ort_org as vio_ort_original
-)count_json = 100
-Execution time for org: 10.23 seconds
-Errors for Original VIO:
-  Latitude RMSE: 0.0002518033
-  Longitude RMSE: 0.0001586097
-
-)count_json = 700
-Execution time for org: 52.24 seconds
-Errors for Original VIO:
-  Latitude RMSE: 0.0001740886
-  Longitude RMSE: 0.0001749469
-
-))import vio_ort_org_copy as vio_ort_original
-)count_json = 100
-Execution time for org: 11.33 seconds
-Errors for Original VIO:
-  Latitude RMSE: 0.0002518033
-  Longitude RMSE: 0.0001586097
-
-)count_json = 700
-Execution time for org: 54.97 seconds
-Errors for Original VIO:
-  Latitude RMSE: 0.0001740886
-  Longitude RMSE: 0.0001749469
-
-
-)))Теперь начнем с изменениями
-
-)))1. Изменить
-from PIL import Image
-rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
-
-))На
-M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
-rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
-
-))Как итог, погрешность составляет:
-Mean 100 Latitude Difference (Optimized VIO - Original VIO): −0,000000005
-Mean 700 Latitude Difference (Optimized VIO - Original VIO): 0,000000223
-Mean 100 Longitude Difference (Optimized VIO - Original VIO): −0,000000085
-Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,0000009
-
-))2. Изменить
-HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-
-))На
-HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
-
-))Как итог, погрешность составляет:
-Mean 100 Latitude Difference (Optimized VIO - Original VIO): −0,000000009
-Mean 700 Latitude Difference (Optimized VIO - Original VIO): 0,000000176
-Mean 100 Longitude Difference (Optimized VIO - Original VIO): −0,000000113
-Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,000000846
-
-
-
-))3. Изменить
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
-
-))На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.05):
-
-))Как итог, погрешность составляет:
-Mean 100 Latitude Difference (Optimized VIO - Original VIO): −0,000000017
-Mean 700 Latitude Difference (Optimized VIO - Original VIO): −0,000000105
-Mean 100 Longitude Difference (Optimized VIO - Original VIO): −0,000000127
-Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,00000133
-
-
-))4. Изменить
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
-
-))На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
-
-))Как итог, погрешность составляет:
-Mean 100 Latitude Difference (Optimized VIO - Original VIO): −0,000000017
-Mean 700 Latitude Difference (Optimized VIO - Original VIO): −0,000000098
-Mean 100 Longitude Difference (Optimized VIO - Original VIO): −0,000000127
-Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,000001341
-
-
-))5. Изменить
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
-
-))На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.01):
-
-))Как итог, погрешность составляет:
-Mean 100 Latitude Difference (Optimized VIO - Original VIO): −0,000000017
-Mean 700 Latitude Difference (Optimized VIO - Original VIO): 0,00000004
-Mean 100 Longitude Difference (Optimized VIO - Original VIO): −0,000000127
-Mean 700 Longitude Difference (Optimized VIO - Original VIO): −0,000000061
-
-
-))При последующих проверках значения не менялись, следовательно все изменения стоит обратить к оригинальному коду, помимо:
-)   def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
-
-)  rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
-
-)  HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
-
-
-)-)-)-)Как итог, заменяем vio_ort_org из vio_ort_org_copy.
-Запустив сверку, были получены данные значения
-import vio_ort as vio_ort
+import json
+import numpy as np
+from time import time
+import matplotlib.pyplot as plt
+
+import vio_ort_exp as vio_ort
 import vio_ort_org as vio_ort_original
+
+# Инициализация параметров
+odometry = vio_ort.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+odometry_org = vio_ort_original.VIO(lat0=54.889668, lon0=83.1258973333, alt0=0)
+set_dir = '2024_12_15_15_31_8_num_3'
+json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
+start = 1000
 count_json = 100
-Test start for cache: 8.41 seconds
-Execution time for opt: 8.20 seconds
-Execution time for org: 11.06 seconds
-Errors for Optimized VIO:
-  Latitude RMSE: 0.0002538565
-  Longitude RMSE: 0.0001441549
-Errors for Original VIO:
-  Latitude RMSE: 0.0002518033
-  Longitude RMSE: 0.0001586097
 
-Mean Latitude Difference (Optimized VIO - Original VIO): 0.0000020542
-Mean Longitude Difference (Optimized VIO - Original VIO): -0.0000144786
+def run_vio(odometry, json_files, start, count_json):
+    lat_VIO, lon_VIO, alt_VIO = [], [], []
+    lat_GPS, lon_GPS, alt_GPS = [], [], []
+    for filename in json_files[start:start + count_json]:
+        with open(f'{set_dir}/{filename}', 'r') as file:
+            data = json.load(file)
+            if 'GNRMC' in data and data['GNRMC']['status'] == 'A':
+                img_path = os.path.join(set_dir, os.path.splitext(filename)[0] + '.jpg')
+                image = cv2.imread(img_path)
+                result_vio = odometry.add_trace_pt(image, data)
+                lat_VIO.append(result_vio['lat'])
+                lon_VIO.append(result_vio['lon'])
+                alt_VIO.append(result_vio['alt'] * 1000)
+                lat_GPS.append(data['GNRMC'].get('lat', 0.0))
+                lon_GPS.append(data['GNRMC'].get('lon', 0.0))
+                alt_GPS.append(data['GPS_RAW_INT']['alt'])
+    return {
+        'lat_VIO': lat_VIO,
+        'lon_VIO': lon_VIO,
+        'alt_VIO': alt_VIO,
+        'lat_GPS': lat_GPS,
+        'lon_GPS': lon_GPS,
+        'alt_GPS': alt_GPS,
+    }
 
+start_time = time()
+run_vio(odometry, json_files, start, count_json)
+elapsed_time = time() - start_time
+print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
-count_json = 700
-Test start for cache: 56.89 seconds
-Execution time for opt: 53.96 seconds
-Execution time for org: 64.39 seconds
-Errors for Optimized VIO:
-  Latitude RMSE: 0.0002669317
-  Longitude RMSE: 0.0003151589
-  Altitude RMSE: 884.1420737381
-Errors for Original VIO:
-  Latitude RMSE: 0.0001740886
-  Longitude RMSE: 0.0001749469
-  Altitude RMSE: 884.1420737381
+start_time = time()
+results_optimized = run_vio(odometry, json_files, start, count_json)
+opt_elapsed_time = time() - start_time
+print(f"Elapsed time: {opt_elapsed_time:.2f} seconds")
 
-Mean Latitude Difference (Optimized VIO - Original VIO): 0.0001046406
-Mean Longitude Difference (Optimized VIO - Original VIO): -0.0002353191
+start_time = time()
+results_original = run_vio(odometry_org, json_files, start, count_json)
+org_elapsed_time = time() - start_time
+print(f"Elapsed time: {org_elapsed_time:.2f} seconds")
 
+def transform_vio_coords(vio_lon_list, vio_lat_list, gps_lon_list, gps_lat_list):
+    gps_lon0 = gps_lon_list[0]
+    gps_lat0 = gps_lat_list[0]
+    vio_lon0 = vio_lon_list[0]
+    vio_lat0 = vio_lat_list[0]
 
-)))06.03
-Я начну заново проверять погрешности для каждого из сценариев, а именно:
-))1. Изменить
-from PIL import Image
-rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+    gps_lon_range = max(gps_lon_list) - min(gps_lon_list)
+    gps_lat_range = max(gps_lat_list) - min(gps_lat_list)
+    vio_lon_range = max(vio_lon_list) - min(vio_lon_list)
+    vio_lat_range = max(vio_lat_list) - min(vio_lat_list)
 
-)На
-M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
-rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+    scale_for_lon = gps_lon_range / vio_lat_range  # VIO широта -> GPS долгота
+    scale_for_lat = gps_lat_range / vio_lon_range  # VIO долгота -> GPS широта
 
-))2. Изменить
-HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
+    transformed_lon = [(v_lat - vio_lat0) * scale_for_lon + gps_lon0 for v_lat in vio_lat_list]
+    transformed_lat = [-(v_lon - vio_lon0) * scale_for_lat + gps_lat0 for v_lon in vio_lon_list]
 
-)На
-HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+    return transformed_lon, transformed_lat
 
-))3. Изменять значения
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
+# Применяем трансформацию
+transformed_lon_opt, transformed_lat_opt = transform_vio_coords(
+    results_optimized['lon_VIO'], results_optimized['lat_VIO'], 
+    results_optimized['lon_GPS'], results_optimized['lat_GPS']
+)
 
-)На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.01):
-)На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.05):
-)На
-def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+transformed_lon_org, transformed_lat_org = transform_vio_coords(
+    results_original['lon_VIO'], results_original['lat_VIO'], 
+    results_original['lon_GPS'], results_original['lat_GPS']
+)
 
+# Обновляем результаты для построения графиков
+results_optimized['lon_VIO_transformed'] = transformed_lon_opt
+results_optimized['lat_VIO_transformed'] = transformed_lat_opt
+results_original['lon_VIO_transformed'] = transformed_lon_org
+results_original['lat_VIO_transformed'] = transformed_lat_org
 
+# Нужно вывести последние координаты у vio и gps
+print("Last GPS coordinates:")
+print(f"Latitude: {results_optimized['lat_GPS'][-1]}")
+print(f"Longitude: {results_optimized['lon_GPS'][-1]}")
+print("Last VIO original coordinates:")
+print(f"Latitude: {results_original['lat_VIO'][-1]}")
+print(f"Longitude: {results_original['lon_VIO'][-1]}")
+print("Last VIO original optimized coordinates:")
+print(f"Latitude: {results_original['lat_VIO_transformed'][-1]}")
+print(f"Longitude: {results_original['lon_VIO_transformed'][-1]}")
+print("Last VIO optimized coordinates:")
+print(f"Latitude: {results_optimized['lat_VIO'][-1]}")
+print(f"Longitude: {results_optimized['lon_VIO'][-1]}")
+print("Last VIO transformed coordinates:")
+print(f"Latitude: {results_optimized['lat_VIO_transformed'][-1]}")
+print(f"Longitude: {results_optimized['lon_VIO_transformed'][-1]}")
 
-Для наглядности я буду вести запись с дистанцией 1000 в файле vio_comparison_results.csv
+# Функция для построения графика с GPS и VIO
+def plot_comparison(results_optimized, results_original):
+    vio_lat_org = results_original['lat_VIO']
+    vio_lon_org = results_original['lon_VIO']
+    vio_alt_org = results_original['alt_VIO']
+    
+    vio_lat_opt = results_optimized['lat_VIO']
+    vio_lon_opt = results_optimized['lon_VIO']
+    vio_alt_opt = results_optimized['alt_VIO']
+    
+    gps_lat = results_original['lat_GPS']
+    gps_lon = results_original['lon_GPS']
+    gps_alt = results_original['alt_GPS']
+    
+    vio_lat_transformed_opt = results_optimized['lat_VIO_transformed']
+    vio_lon_transformed_opt = results_optimized['lon_VIO_transformed']
+
+    vio_lat_transformed_org = results_original['lat_VIO_transformed']
+    vio_lon_transformed_org = results_original['lon_VIO_transformed']
+
+    # Построение графиков широты
+    plt.figure(figsize=(18, 6))
+    plt.subplot(2, 3, 1)
+    plt.plot(vio_lat_org, label='Original VIO Latitude', linestyle='--')
+    plt.plot(vio_lat_opt, label='Optimized VIO Latitude', linestyle='-.')
+    plt.plot(gps_lat, label='GPS Latitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Latitude')
+    plt.title('Latitude Comparison')
+    plt.legend()
+    
+    # Построение графиков долготы
+    plt.subplot(2, 3, 2)
+    plt.plot(vio_lon_org, label='Original VIO Longitude', linestyle='--')
+    plt.plot(vio_lon_opt, label='Optimized VIO Longitude', linestyle='-.')
+    plt.plot(gps_lon, label='GPS Longitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Longitude')
+    plt.title('Longitude Comparison')
+    plt.legend()
+    
+    # Построение графиков высоты
+    plt.subplot(2, 3, 3)
+    plt.plot(vio_alt_org, label='Original VIO Altitude', linestyle='--')
+    plt.plot(vio_alt_opt, label='Optimized VIO Altitude', linestyle='-.')
+    plt.plot(gps_alt, label='GPS Altitude', linestyle='-')
+    plt.xlabel('Index')
+    plt.ylabel('Altitude (mm)')
+    plt.title('Altitude Comparison')
+    plt.legend()
+    
+    # Построение широты
+    plt.subplot(2, 3, 4)
+    plt.plot(gps_lat, label='GPS Latitude', linestyle='-')
+    plt.plot(vio_lat_transformed_org, label='Original VIO Latitude (transformed)', linestyle='--')
+    plt.plot(vio_lat_transformed_opt, label='Optimized VIO Latitude (transformed)', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Latitude')
+    plt.title('Latitude Comparison (Transformed)')
+    plt.legend()
+
+    # Построение долготы
+    plt.subplot(2, 3, 5)
+    plt.plot(gps_lon, label='GPS Longitude', linestyle='-')
+    plt.plot(vio_lon_transformed_org, label='Original VIO Longitude (transformed)', linestyle='--')
+    plt.plot(vio_lon_transformed_opt, label='Optimized VIO Longitude (transformed)', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Longitude')
+    plt.title('Longitude Comparison (Transformed)')
+    plt.legend()
+
+    # Построение высоты
+    plt.subplot(2, 3, 6)
+    plt.plot(gps_alt, label='GPS Altitude', linestyle='-')
+    plt.plot(vio_alt_org, label='Original VIO Altitude', linestyle='--')
+    plt.plot(vio_alt_opt, label='Optimized VIO Altitude', linestyle='-.')
+    plt.xlabel('Index')
+    plt.ylabel('Altitude (mm)')
+    plt.title('Altitude Comparison')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+#plot_comparison(results_optimized, results_original)
+
+def save_results_to_csv(filename, results_optimized, results_original, comment):
+    # Вычисляем средние значения координат
+    mean_gps_lat = np.mean(results_original['lat_GPS'])
+    mean_gps_lon = np.mean(results_original['lon_GPS'])
+    
+    mean_orig_lat = np.mean(results_original['lat_VIO'])
+    mean_orig_lon = np.mean(results_original['lon_VIO'])
+    
+    mean_opt_lat = np.mean(results_optimized['lat_VIO'])
+    mean_opt_lon = np.mean(results_optimized['lon_VIO'])
+    
+    # Разницы: экспериментальный VIO относительно исходного и GPS
+    diff_opt_orig_lat = mean_opt_lat - mean_orig_lat
+    diff_opt_orig_lon = mean_opt_lon - mean_orig_lon
+    
+    diff_opt_gps_lat = mean_opt_lat - mean_gps_lat
+    diff_opt_gps_lon = mean_opt_lon - mean_gps_lon
+    
+    diff_orig_gps_lat = mean_orig_lat - mean_gps_lat
+    diff_orig_gps_lon = mean_orig_lon - mean_gps_lon
+    
+    file_exists = os.path.isfile(filename)
+    with open(filename, mode='a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "Comment", "Time (Optimized)", "Time (Original)",
+                "Diff (Opt - Orig) Latitude", "Diff (Opt - Orig) Longitude", 
+                "Diff (Opt - GPS) Latitude", "Diff (Opt - GPS) Longitude",
+                "Diff (Orig - GPS) Latitude", "Diff (Orig - GPS) Longitude"
+            ])
+        writer.writerow([
+            comment, opt_elapsed_time, org_elapsed_time,
+            diff_opt_orig_lat, diff_opt_orig_lon,
+            diff_opt_gps_lat, diff_opt_gps_lon,
+            diff_orig_gps_lat, diff_orig_gps_lon
+        ])
+
+comment = "100. Basic"
+csv_filename = "vio_comparison_results.csv"
+save_results_to_csv(csv_filename, results_optimized, results_original, comment)
+print(f"Results appended to {csv_filename}.")
