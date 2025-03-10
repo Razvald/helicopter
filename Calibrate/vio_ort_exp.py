@@ -47,7 +47,7 @@ def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
 
 class VIO():
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
+    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
         self.lat0 = lat0
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
@@ -75,8 +75,6 @@ class VIO():
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        #crop = cv2.remap(rotated, map_x, map_y, cv2.INTER_LINEAR, cv2.BORDER_CONSTANT)
-
 
         trace_pt = dict(
             crop=crop,

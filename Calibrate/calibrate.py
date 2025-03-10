@@ -94,22 +94,28 @@ results_optimized['lat_VIO_transformed'] = transformed_lat_opt
 results_original['lon_VIO_transformed'] = transformed_lon_org
 results_original['lat_VIO_transformed'] = transformed_lat_org
 
-# Вывод последних координат для проверки
-print("Last GPS coordinates:")
-print(f"Latitude: {results_optimized['lat_GPS'][-1]}")
-print(f"Longitude: {results_optimized['lon_GPS'][-1]}")
-print("Last VIO original coordinates:")
-print(f"Latitude: {results_original['lat_VIO'][-1]}")
-print(f"Longitude: {results_original['lon_VIO'][-1]}")
-print("Last VIO original transformed coordinates:")
-print(f"Latitude: {results_original['lat_VIO_transformed'][-1]}")
-print(f"Longitude: {results_original['lon_VIO_transformed'][-1]}")
-print("Last VIO optimized coordinates:")
-print(f"Latitude: {results_optimized['lat_VIO'][-1]}")
-print(f"Longitude: {results_optimized['lon_VIO'][-1]}")
-print("Last VIO optimized transformed coordinates:")
-print(f"Latitude: {results_optimized['lat_VIO_transformed'][-1]}")
-print(f"Longitude: {results_optimized['lon_VIO_transformed'][-1]}")
+# Функция для вычисления расстояния между двумя точками в метрах
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371000  # радиус Земли в метрах
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+print("GPS --- VIO org")
+print(haversine(results_original['lat_GPS'][-1], results_original['lon_GPS'][-1],
+                results_original['lat_VIO'][-1], results_original['lon_VIO'][-1]))
+print("GPS --- VIO opt")
+print(haversine(results_original['lat_GPS'][-1], results_original['lon_GPS'][-1],
+                results_optimized['lat_VIO'][-1], results_optimized['lon_VIO'][-1]))
+
+print("GPS --- VIO org trans")
+print(haversine(results_original['lat_GPS'][-1], results_original['lon_GPS'][-1],
+                results_original['lat_VIO_transformed'][-1], results_original['lon_VIO_transformed'][-1]))
+print("GPS --- VIO opt trans")
+print(haversine(results_original['lat_GPS'][-1], results_original['lon_GPS'][-1],
+                results_optimized['lat_VIO_transformed'][-1], results_optimized['lon_VIO_transformed'][-1]))
 
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_optimized, results_original):
@@ -197,26 +203,17 @@ def plot_comparison(results_optimized, results_original):
 
 #plot_comparison(results_optimized, results_original)
 
-# Функция для вычисления расстояния между двумя точками в метрах
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000  # радиус Земли в метрах
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
 def save_results_to_csv(filename, results_optimized, results_original, comment):
     file_exists = os.path.isfile(filename)
     with open(filename, mode='w', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "Comment", "Index", "GPS Latitude", "GPS Longitude",
-                "Original Latitude", "Original Longitude", "Diff GPS-Orig (m)",
-                "Original Transformed Latitude", "Original Transformed Longitude", "Diff GPS-Orig Trans (m)",
-                "Optimized Latitude", "Optimized Longitude", "Diff GPS-Opt (m)",
-                "Optimized Transformed Latitude", "Optimized Transformed Longitude", "Diff GPS-Opt Trans (m)"
+                "Comment", "Index",
+                "Diff GPS-Orig (m)",
+                "Diff GPS-Orig Trans (m)",
+                "Diff GPS-Opt (m)",
+                "Diff GPS-Opt Trans (m)"
             ])
 
         for i in range(len(results_original['lat_GPS'])):
@@ -235,14 +232,14 @@ def save_results_to_csv(filename, results_optimized, results_original, comment):
 
             # Запись строки
             writer.writerow([
-                comment, i, gps_lat, gps_lon,
-                org_lat, org_lon, diff_gps_org,
-                org_trans_lat, org_trans_lon, diff_gps_org_trans,
-                opt_lat, opt_lon, diff_gps_opt,
-                opt_trans_lat, opt_trans_lon, diff_gps_opt_trans
+                comment, i,
+                diff_gps_org,
+                diff_gps_org_trans,
+                diff_gps_opt,
+                diff_gps_opt_trans
             ])
 
-comment = "1000. Change PIL to CV2"
+comment = "1000. maxIters"
 csv_filename = "vio_comparison_results.csv"
 save_results_to_csv(csv_filename, results_optimized, results_original, comment)
 print(f"Results appended to {csv_filename}.")
