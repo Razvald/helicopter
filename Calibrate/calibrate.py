@@ -238,7 +238,7 @@ def save_results_to_csv(filename, results_optimized, results_original, comment):
                 diff_gps_opt_trans
             ])
 
-comment = "1000. maxIters"
+comment = "100. maxIters"
 csv_filename = "vio_comparison_results.csv"
 save_results_to_csv(csv_filename, results_optimized, results_original, comment)
 print(f"Results appended to {csv_filename}.")
