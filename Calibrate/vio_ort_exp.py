@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
+from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -31,6 +32,8 @@ NUM_MATCH_THR = 8
 TRACE_DEPTH = 8
 VEL_FIT_DEPTH = TRACE_DEPTH
 METERS_DEG = 111320
+MAX_ITERS = None
+ROTATION = "PIL"
 
 FLAGS = mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VEL_VERT | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_VERTICAL_ACCURACY | mavutil.mavlink.GPS_INPUT_IGNORE_FLAG_HORIZONTAL_ACCURACY
 
@@ -47,7 +50,7 @@ def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
 
 class VIO():
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
         self.lat0 = lat0
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
@@ -69,8 +72,11 @@ class VIO():
 
         dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
 
-        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
-        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+        if ROTATION == "PIL":
+            rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
+        elif ROTATION == "CV2":
+            M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
+            rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
         rotated = np.asarray(rotated)
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
@@ -155,7 +161,7 @@ class VIO():
         good_prev = []
         good_next = []
         if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=MAX_ITERS)
 
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
