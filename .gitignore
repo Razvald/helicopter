@@ -1,6 +1,7 @@
 .venv
 2024_*
 2025_*
+output_graphs
 Calibrate/Profiling/Reports/
 
 ## Ignore Visual Studio temporary files, build results, and
