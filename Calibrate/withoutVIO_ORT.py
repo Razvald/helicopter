@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 # %%
 # Инициализация параметров
 set_dir = '2024_12_15_15_31_8_num_3'
+set_dir = '2025_3_14_11_42_57_num_4'
 
 json_files = sorted([f for f in os.listdir(set_dir) if f.endswith('.json')])
 

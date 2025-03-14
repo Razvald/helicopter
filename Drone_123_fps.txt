@@ -1,0 +1,282 @@
+
+Max FPS: 8.1, Min FPS: 2.6.1), Voltage: 15214, Delta: 26.985622100532055
+Max FPS: 5.4, Min FPS: 2.8.4), Voltage: 15220, Delta: 2.84714237973094233
+Max FPS: 4.5, Min FPS: 2.6.5), Voltage: 15249, Delta: 29.025636825710535
+Max FPS: 3.9, Min FPS: 2.6.9), Voltage: 15223, Delta: 19.8678853763267457
+Max FPS: 5.4, Min FPS: 2.5.1), Voltage: 15226, Delta: 44.1061078337952565
+
+
+main_loop
+Max FPS: 10.3, Min FPS: 3.4.3), Voltage: 15212, Delta: 62.128000350669026
+Max FPS: 8.1, Min FPS: 4.7.1), Voltage: 15213, Delta: 82.1561080170795358
+Max FPS: 8.0, Min FPS: 5.5.0), Voltage: 15221, Delta: 54.9954929500818255
+Max FPS: 9.0, Min FPS: 5.7.0), Voltage: 15214, Delta: 53.5634563444182376
+Max FPS: 8.0, Min FPS: 3.9.0), Voltage: 15215, Delta: 60.083820037543774
+Max FPS: 8.7, Min FPS: 5.2.7), Voltage: 15204, Delta: 51.607391830533746
+Max FPS: 8.3, Min FPS: 5.3.3), Voltage: 15217, Delta: 76.8675205539912168
+Max FPS: 8.2, Min FPS: 5.4.2), Voltage: 15209, Delta: 60.9152758484706367
+Max FPS: 7.6, Min FPS: 5.3.6), Voltage: 15217, Delta: 79.670865844935184
+^Ckeybopard interrupt in posdata poll process, Delta: 46.837635803036394
+
+
+
+
+
+main_loop
+Max FPS: 7.9, Min FPS: 3.7.9), Voltage: 15211, Delta: 32.913209305144846
+Max FPS: 6.0, Min FPS: 4.1.0), Voltage: 15216, Delta: 31.439665313810115
+Max FPS: 5.7, Min FPS: 4.2.7), Voltage: 15215, Delta: 50.910950454883285
+Max FPS: 6.1, Min FPS: 4.4.1), Voltage: 15214, Delta: 58.872517517767855
+Max FPS: 6.0, Min FPS: 4.2.0), Voltage: 15205, Delta: 56.153117843903615
+Max FPS: 5.9, Min FPS: 4.1.9), Voltage: 15208, Delta: 42.548429748974748
+Max FPS: 6.0, Min FPS: 4.1.0), Voltage: 15218, Delta: 107.76483738701794
+^Ckeybopard interrupt in camera process 15210, Delta: 29.520382950082424
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 9.3, Min FPS: 3.4.3), Voltage: 15205, Delta: 9.9730693362653266
+Max FPS: 5.7, Min FPS: 3.9.7), Voltage: 15207, Delta: 31.6546408841386447
+Max FPS: 5.8, Min FPS: 4.2.8), Voltage: 15223, Delta: 36.285218322649697
+Max FPS: 5.9, Min FPS: 4.2.9), Voltage: 15222, Delta: 34.7924129338935254
+Max FPS: 6.0, Min FPS: 4.2.0), Voltage: 15208, Delta: 30.145355544984344
+Max FPS: 5.7, Min FPS: 4.1.7), Voltage: 15202, Delta: 15.5582748418673873
+^Ckeybopard interrupt in camera process 15213, Delta: 44.566947616636756
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 7.9, Min FPS: 3.7.9), Voltage: 15211, Delta: 42.2179740145802571
+Max FPS: 8.2, Min FPS: 5.3.2), Voltage: 15220, Delta: 5.4276138152927168
+Max FPS: 8.3, Min FPS: 5.0.3), Voltage: 15211, Delta: 38.4187825312837965
+Max FPS: 8.9, Min FPS: 5.0.9), Voltage: 15221, Delta: 59.814129776321357
+Max FPS: 7.5, Min FPS: 5.4.5), Voltage: 15204, Delta: 12.5285319676622757
+Max FPS: 8.7, Min FPS: 5.1.7), Voltage: 15210, Delta: 32.501758880913266
+^Ckeybopard interrupt in posdata poll process, Delta: 13.952717757783836
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 7.9, Min FPS: 2.9.9), Voltage: 15214, Delta: 7.9412765502929693
+Max FPS: 4.9, Min FPS: 3.7.9), Voltage: 15210, Delta: 3.2248274078592666
+Max FPS: 5.1, Min FPS: 2.9.1), Voltage: 15219, Delta: 27.7081650393083756
+Max FPS: 4.7, Min FPS: 3.3.7), Voltage: 15214, Delta: 0.33322012331336737
+Max FPS: 5.4, Min FPS: 3.6.4), Voltage: 15213, Delta: 5.1908036498352885
+Max FPS: 4.7, Min FPS: 3.5.7), Voltage: 15207, Delta: 15.947367309592664
+^Ckeybopard interrupt in camera process 15212, Delta: 10.5158627778291763
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 10.8, Min FPS: 4.8.8), Voltage: 15215, Delta: 43.175780761055657
+Max FPS: 7.2, Min FPS: 4.9.2), Voltage: 15221, Delta: 4.2857212368398905
+Max FPS: 6.8, Min FPS: 4.2.8), Voltage: 15220, Delta: 36.1184642333537349
+Max FPS: 7.3, Min FPS: 5.2.3), Voltage: 15207, Delta: 4.97663587983697652
+Max FPS: 7.3, Min FPS: 4.6.3), Voltage: 15207, Delta: 3.2783242641016846
+Max FPS: 7.0, Min FPS: 4.5.0), Voltage: 15206, Delta: 33.4225978087633853
+^Ckeybopard interrupt in camera process 15227, Delta: 34.52487545739859035
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 7.3, Min FPS: 3.6.3), Voltage: 15212, Delta: 54.391167465597393
+Max FPS: 4.9, Min FPS: 3.4.9), Voltage: 15215, Delta: 21.9560018917545683
+Max FPS: 5.0, Min FPS: 3.5.0), Voltage: 15216, Delta: 66.0419720765203224
+Max FPS: 5.2, Min FPS: 3.3.2), Voltage: 15207, Delta: 10.1474975887686015
+Max FPS: 5.1, Min FPS: 3.6.1), Voltage: 15211, Delta: 18.4858580939471722
+Max FPS: 5.0, Min FPS: 3.6.0), Voltage: 15219, Delta: 31.7457683868706234
+^Ckeybopard interrupt in camera process 15202, Delta: 11.368890746496618
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+Max FPS: 9.3, Min FPS: 2.9.3), Voltage: 15211, Delta: 17.1815810697153273
+Max FPS: 6.6, Min FPS: 4.0.6), Voltage: 15211, Delta: 43.7644241638481686
+Max FPS: 6.8, Min FPS: 4.8.8), Voltage: 15223, Delta: 28.5222179871052536
+Max FPS: 6.8, Min FPS: 4.6.8), Voltage: 15219, Delta: 21.6315345000475654
+Max FPS: 7.2, Min FPS: 4.5.2), Voltage: 15202, Delta: 9.8720981748774655
+Max FPS: 8.2, Min FPS: 4.7.2), Voltage: 15211, Delta: 63.6265117796137988
+^Ckeybopard interrupt in posdata poll process, Delta: 11.165037810802465
+
+
+
+
+
+main_loop
+3.0: 3.7 (min: 3.0, max: 9.1), Voltage: 15220, Delta: 42.4293390344828474
+3.1: 4.0 (min: 3.1, max: 4.0), Voltage: 15215, Delta: 20.305038024671376
+2.5: 3.2 (min: 2.5, max: 4.1), Voltage: 15202, Delta: 35.4352027280256158
+3.1: 3.8 (min: 3.1, max: 3.9), Voltage: 15217, Delta: 30.626009292900562
+3.0: 3.3 (min: 3.0, max: 4.3), Voltage: 15227, Delta: 62.246737151406705
+3.0: 4.2 (min: 3.0, max: 4.6), Voltage: 15216, Delta: 41.7636990807950566
+3.1: 5.3 (min: 3.1, max: 6.0), Voltage: 15208, Delta: 50.9965919796377475
+^Ckeybopard interrupt in posdata poll process, Delta: 1.2814106903970242
+
+Stopping all processes...
+
+main_loop
+Max FPS: 8.9, Min FPS: 4.2 9), Voltage: 15211, Delta: 39.970026122406125
+
+Max FPS: 6.8, Min FPS: 4.5 8), Voltage: 15218, Delta: 13.3153199609369043
+
+Max FPS: 6.2, Min FPS: 3.3 2), Voltage: 15207, Delta: 57.2810983732342753
+
+^Ckeybopard interrupt in camera process 15217, Delta: 30.720476318150763
+keybopard interrupt in posdata poll process
+
+Stopping all processes...
+
+
+
+
+main_loop
+FPS: 5.6 (min: 3.3, max: 9.6), Voltage: 15220, Delta: 59.790939651429654
+Max FPS: 9.6, Min FPS: 3.3 
+
+FPS: 5.2 (min: 4.5, max: 6.4), Voltage: 15214, Delta: 3.55156323313713075
+Max FPS: 6.4, Min FPS: 4.5 
+
+^Ckeybopard interrupt in posdata poll process, Delta: 3.0965501721948385
+
+
+
+
+(baseto) orangepi@orangepi5b:~/d.Panchenko/hp5$ ^C
+
+main_loop
+^Ckeybopard interrupt in posdata poll process, Delta: 21.2088701184839657
+
+^CProcess Process-2:
+Traceback (most recent call last):
+  File "/home/orangepi/d.Panchenko/hp5/main.py", line 373, in <module>
+
+    process.join()
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/process.py", line 149, in join
+    res = self._popen.wait(timeout)
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 43, in wait
+    return self.poll(os.WNOHANG if timeout == 0.0 else 0)
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 27, in poll
+    pid, sts = os.waitpid(self.pid, flag)
+KeyboardInterrupt
+
+
+main_loop
+FPS: 3.2 (min: 3.1, max: 10.8), Voltage: 15206, Delta: 9.46375242620706668
+3.1
+FPS: 3.3 (min: 3.1, max: 3.8), Voltage: 15219, Delta: 19.354663604870445
+3.1
+FPS: 3.0 (min: 2.8, max: 3.9), Voltage: 15209, Delta: 55.833906129002574
+2.8
+FPS: 3.9 (min: 3.1, max: 3.9), Voltage: 15226, Delta: 13.4609982296824463
+3.1
+FPS: 3.4 (min: 3.0, max: 4.4), Voltage: 15227, Delta: 8.83591306954622364
+3.0
+FPS: 3.6 (min: 3.1, max: 4.1), Voltage: 15217, Delta: 34.872385360300548
+3.1
+^Ckeybopard interrupt in posdata poll process, Delta: 2.0585478208959103
+
+Stopping all processes...
+
+
+
+
+main_loop
+FPS: 5.7 (min: 4.1, max: 9.3), Voltage: 15224, Delta: 38.220336303114895
+4.1
+FPS: 5.7 (min: 4.2, max: 6.8), Voltage: 15223, Delta: 8.57490487769246166
+4.2
+FPS: 4.8 (min: 3.9, max: 6.3), Voltage: 15220, Delta: 50.1497633196413546
+3.9
+FPS: 4.1 (min: 4.1, max: 6.0), Voltage: 15214, Delta: 42.319020675495276
+4.1
+FPS: 6.1 (min: 4.3, max: 6.7), Voltage: 15227, Delta: 11.26999876275658668
+4.3
+FPS: 5.3 (min: 4.7, max: 7.8), Voltage: 15207, Delta: 20.7298203725367845
+4.7
+^Ckeybopard interrupt in posdata poll process, Delta: 27.116454010829337
+
+^CProcess Process-2:
+
+Traceback (most recent call last):
+  File "/home/orangepi/d.Panchenko/hp5/main.py", line 374, in <module>
+    process.join()
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/process.py", line 149, in join
+    res = self._popen.wait(timeout)
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 43, in wait
+    return self.poll(os.WNOHANG if timeout == 0.0 else 0)
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 27, in poll
+    pid, sts = os.waitpid(self.pid, flag)
+KeyboardInterrupt
+
+
+main_loop
+FPS: 4.0 (min: 3.0, max: 7.6), Voltage: 15211, Delta: 20.145928131416447
+3.0
+FPS: 3.5 (min: 3.1, max: 4.8), Voltage: 15220, Delta: 21.549162840470674
+3.1
+FPS: 2.9 (min: 2.9, max: 4.0), Voltage: 15222, Delta: 15.5487445984035734
+2.9
+FPS: 3.3 (min: 3.1, max: 3.9), Voltage: 15219, Delta: 55.882861679419875
+3.1
+FPS: 4.0 (min: 2.5, max: 4.0), Voltage: 15213, Delta: 53.742903320118785
+2.5
+FPS: 3.5 (min: 2.9, max: 4.7), Voltage: 15216, Delta: 53.159886825829744
+2.9
+^Ckeybopard interrupt in posdata poll process, Delta: 46.3932313527911985
+
+^CProcess Process-2:
+Traceback (most recent call last):
+  File "/home/orangepi/d.Panchenko/hp5/main.py", line 374, in <module>
+    process.join()
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/process.py", line 149, in join
+    res = self._popen.wait(timeout)
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 43, in wait
+
+    return self.poll(os.WNOHANG if timeout == 0.0 else 0)
+
+    if lock.acquire(block, timeout):
+  File "/home/orangepi/miniconda3/envs/baseto/lib/python3.10/multiprocessing/popen_fork.py", line 27, in poll
+KeyboardInterrupt
+    pid, sts = os.waitpid(self.pid, flag)
+KeyboardInterrupt
+
+
+main_loop
+FPS: 5.2 (min: 3.5, max: 9.0), Voltage: 15220, Delta: 30.222784820944074
+3.5, 
+FPS: 4.9 (min: 4.3, max: 7.6), Voltage: 15217, Delta: 19.0470376443117862
+4.3, 
+FPS: 5.7 (min: 4.3, max: 6.1), Voltage: 15221, Delta: 29.4958789981901658
+4.3, 
+FPS: 5.9 (min: 4.4, max: 6.1), Voltage: 15215, Delta: 37.436671311035754
+4.4, 
+FPS: 6.3 (min: 4.4, max: 7.0), Voltage: 15207, Delta: 6.84039549157023453
+4.4, 
+FPS: 5.7 (min: 4.7, max: 7.4), Voltage: 15212, Delta: 22.4232973325997655
+4.7, 
+^Ckeybopard interrupt in posdata poll process, Delta: 11.7727146148681643
+
+

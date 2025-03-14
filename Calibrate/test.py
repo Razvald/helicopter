@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Чтение данных из файла CSV
-df = pd.read_csv('vio_results_comparison_100.csv')
+df = pd.read_csv('vio_results_comparison_1000.csv')
 
 # Приведение столбцов
 df['Max Iters'] = df['Max Iters'].fillna('None')  # Преобразование NaN в 'None'
@@ -35,14 +35,14 @@ plt.ylabel('RMSE')
 plt.legend(title='Detection Threshold / Top_k')
 
 plt.tight_layout()
-plt.show()
+#plt.show()
 
 
 # Поиск минимального значения RMSE
 min_rmse = df['RMSE'].min()
 
 # Устанавливаем порог RMSE (минимальный RMSE + N метр)
-threshold_rmse = min_rmse + 10
+threshold_rmse = min_rmse + 100
 
 # Фильтрация конфигураций с RMSE ≤ минимальное значение RMSE + N метр
 df_acceptable = df[df['RMSE'] <= threshold_rmse]
@@ -56,3 +56,4 @@ else:
     # Если нет конфигураций с RMSE ≤ минимальное значение, то выбираем конфигурацию с минимальным временем
     best_overall = df.loc[df['Time'].idxmin()]
     print(f"Конфигурация с минимальным временем выполнения (при RMSE > {threshold_rmse}): \n{best_overall}")
+

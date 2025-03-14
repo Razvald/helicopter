@@ -1,0 +1,768 @@
+razvald@razvald:~/My_Folder/VS_Code/Code/Calibrate$ python3 123.py 
+
+Набор параметров #1/64
+Top_k                        512
+Detection Threshold         0.05
+Max Iters                   None
+Rotation method              PIL
+Trace depth                    8
+RMSE                   26.052406
+Time                   75.046169
+Name: 0, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1.5, 1.4, 1.5, 1.5, 1.5, 2.2, 1.6
+Средний FPS для этого набора: 1.60
+
+Набор параметров #2/64
+Top_k                        512
+Detection Threshold         0.05
+Max Iters                   None
+Rotation method              PIL
+Trace depth                    4
+RMSE                   66.705166
+Time                    75.45412
+Name: 1, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 2.5, 2.4, 2.5, 2.5, 2.5, 2.5, 2.6
+Средний FPS для этого набора: 2.50
+
+Набор параметров #3/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                    None
+Rotation method               CV2
+Trace depth                     8
+RMSE                   114.783313
+Time                    74.360795
+Name: 2, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1.5, 1.5, 1.7, 1.5, 1.5, 1.6
+Средний FPS для этого набора: 1.55
+
+Набор параметров #4/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                    None
+Rotation method               CV2
+Trace depth                     4
+RMSE                   163.876632
+Time                    77.242452
+Name: 3, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 2.6, 2.8, 2.6, 2.6, 2.5
+Средний FPS для этого набора: 2.62
+
+Набор параметров #5/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   100.0
+Rotation method               PIL
+Trace depth                     8
+RMSE                   213.285128
+Time                    76.688417
+Name: 4, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.4, 4.7, 5.5, 5.7, 3.9, 5.2, 5.3, 5.4, 5.3
+Средний FPS для этого набора: 4.93
+
+Набор параметров #6/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   100.0
+Rotation method               PIL
+Trace depth                     4
+RMSE                   262.831004
+Time                    76.482184
+Name: 5, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.7, 4.1, 4.2, 4.4, 4.2, 4.1, 4.1
+Средний FPS для этого набора: 4.11
+
+Набор параметров #7/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   100.0
+Rotation method               CV2
+Trace depth                     8
+RMSE                   312.448819
+Time                    75.982598
+Name: 6, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.4, 3.9, 4.2, 4.2, 4.2, 4.1
+Средний FPS для этого набора: 4.00
+
+Набор параметров #8/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   100.0
+Rotation method               CV2
+Trace depth                     4
+RMSE                   362.108923
+Time                    76.145927
+Name: 7, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 5.3, 5.0, 5.0, 5.0, 5.4, 5.1
+Средний FPS для этого набора: 5.13
+
+Набор параметров #9/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   300.0
+Rotation method               PIL
+Trace depth                     8
+RMSE                   411.795946
+Time                      75.2401
+Name: 8, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 2.9, 3.7, 2.9, 3.3, 3.6, 3.5
+Средний FPS для этого набора: 3.32
+
+Набор параметров #10/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   300.0
+Rotation method               PIL
+Trace depth                     4
+RMSE                   461.501131
+Time                    74.942995
+Name: 9, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 4.8, 4.9, 4.2, 5.2, 4.6, 4.5
+Средний FPS для этого набора: 4.70
+
+Набор параметров #11/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   300.0
+Rotation method               CV2
+Trace depth                     8
+RMSE                   511.219123
+Time                    75.402917
+Name: 10, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.6, 3.4, 3.5, 3.3, 3.6, 3.6
+Средний FPS для этого набора: 3.50
+
+Набор параметров #12/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   300.0
+Rotation method               CV2
+Trace depth                     4
+RMSE                   560.946465
+Time                    77.686565
+Name: 11, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 2.9, 4.0, 4.8, 4.6, 4.5, 4.7
+Средний FPS для этого набора: 4.25
+
+Набор параметров #13/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   500.0
+Rotation method               PIL
+Trace depth                     8
+RMSE                   610.680825
+Time                    74.821345
+Name: 12, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.1, 3.1, 2.8, 3.1, 3.0, 3.1
+Средний FPS для этого набора: 3.03
+
+Набор параметров #14/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   500.0
+Rotation method               PIL
+Trace depth                     4
+RMSE                   660.420575
+Time                    74.709217
+Name: 13, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 4.1, 4.2, 3.9, 4.1, 4.3, 4.7
+Средний FPS для этого набора: 4.22
+
+Набор параметров #15/64
+Top_k                        512
+Detection Threshold         0.05
+Max Iters                  500.0
+Rotation method              CV2
+Trace depth                    8
+RMSE                   710.16454
+Time                   74.491631
+Name: 14, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.0, 3.1, 2.9, 3.1, 2.5, 2.9
+Средний FPS для этого набора: 2.92
+
+Набор параметров #16/64
+Top_k                         512
+Detection Threshold          0.05
+Max Iters                   500.0
+Rotation method               CV2
+Trace depth                     4
+RMSE                   759.911854
+Time                    75.090525
+Name: 15, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.5, 4.3, 4.3, 4.4, 4.4, 4.7
+Средний FPS для этого набора: 4.27
+
+Набор параметров #17/64
+Top_k                         512
+Detection Threshold          0.01
+Max Iters                    None
+Rotation method               PIL
+Trace depth                     8
+RMSE                   809.660933
+Time                    74.736614
+Name: 16, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1.6, 1.6, 1.8, 1.5, 1.5
+Средний FPS для этого набора: 1.60
+
+Набор параметров #18/64
+Top_k                         512
+Detection Threshold          0.01
+Max Iters                    None
+Rotation method               PIL
+Trace depth                     4
+RMSE                   859.411821
+Time                    75.185537
+Name: 17, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 3.9, 2.9, 3.3, 2.6, 2.5
+Средний FPS для этого набора: 3.04
+
+Набор параметров #19/64
+Top_k                         512
+Detection Threshold          0.01
+Max Iters                    None
+Rotation method               CV2
+Trace depth                     8
+RMSE                   909.164498
+Time                    74.677499
+Name: 18, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1.5
+Средний FPS для этого набора: 1.50
+
+Набор параметров #20/64
+Top_k                         512
+Detection Threshold          0.01
+Max Iters                    None
+Rotation method               CV2
+Trace depth                     4
+RMSE                   958.918653
+Time                    74.695571
+Name: 19, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 2.6
+Средний FPS для этого набора: 2.60
+
+Набор параметров #21/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   1008.674041
+Time                     74.758523
+Name: 20, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #22/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   1058.430459
+Time                     75.109432
+Name: 21, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #23/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   1108.187743
+Time                      74.66131
+Name: 22, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #24/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   1157.945755
+Time                     75.172432
+Name: 23, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #25/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   1207.704382
+Time                     75.078075
+Name: 24, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #26/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   1257.463528
+Time                     75.073458
+Name: 25, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #27/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   1307.223112
+Time                     75.390609
+Name: 26, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #28/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   1356.983063
+Time                     75.092993
+Name: 27, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #29/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   1406.743322
+Time                     75.134086
+Name: 28, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #30/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   1456.503838
+Time                     74.775589
+Name: 29, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #31/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   1506.264566
+Time                     75.015984
+Name: 30, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #32/64
+Top_k                          512
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   1556.025466
+Time                     75.224548
+Name: 31, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #33/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                     None
+Rotation method                PIL
+Trace depth                      8
+RMSE                   1605.701922
+Time                      71.26461
+Name: 32, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #34/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                     None
+Rotation method                PIL
+Trace depth                      4
+RMSE                   1655.401179
+Time                     71.356675
+Name: 33, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #35/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                     None
+Rotation method                CV2
+Trace depth                      8
+RMSE                   1705.100579
+Time                       71.3884
+Name: 34, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #36/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                     None
+Rotation method                CV2
+Trace depth                      4
+RMSE                   1754.800095
+Time                     71.409809
+Name: 35, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #37/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    100.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   1804.499699
+Time                     71.126139
+Name: 36, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #38/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    100.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   1854.199371
+Time                      71.58212
+Name: 37, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #39/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   1903.899088
+Time                     71.434677
+Name: 38, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #40/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   1953.598833
+Time                     71.565493
+Name: 39, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #41/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   2003.298589
+Time                     71.738388
+Name: 40, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #42/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   2052.998341
+Time                     71.424699
+Name: 41, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #43/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    300.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   2102.698076
+Time                      72.00693
+Name: 42, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #44/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    300.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   2152.397781
+Time                     71.709355
+Name: 43, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #45/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    500.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   2202.097446
+Time                     71.560583
+Name: 44, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #46/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    500.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   2251.797059
+Time                     71.684525
+Name: 45, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #47/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   2301.496612
+Time                     71.733484
+Name: 46, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #48/64
+Top_k                          256
+Detection Threshold           0.05
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   2351.196097
+Time                     71.618103
+Name: 47, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #49/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                     None
+Rotation method                PIL
+Trace depth                      8
+RMSE                   2400.894933
+Time                     71.604529
+Name: 48, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #50/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                     None
+Rotation method                PIL
+Trace depth                      4
+RMSE                   2450.593617
+Time                     71.640608
+Name: 49, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #51/64
+Top_k                         256
+Detection Threshold          0.01
+Max Iters                    None
+Rotation method               CV2
+Trace depth                     8
+RMSE                   2500.29221
+Time                    71.457217
+Name: 50, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #52/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                     None
+Rotation method                CV2
+Trace depth                      4
+RMSE                   2549.990706
+Time                     71.748901
+Name: 51, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #53/64
+Top_k                        256
+Detection Threshold         0.01
+Max Iters                  100.0
+Rotation method              PIL
+Trace depth                    8
+RMSE                   2599.6891
+Time                   71.540018
+Name: 52, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #54/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   2649.387385
+Time                     71.606758
+Name: 53, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #55/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   2699.085559
+Time                     71.651397
+Name: 54, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #56/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    100.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   2748.783615
+Time                     71.438693
+Name: 55, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #57/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   2798.481549
+Time                     71.586548
+Name: 56, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #58/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    300.0
+Rotation method                PIL
+Trace depth                      4
+RMSE                   2848.179359
+Time                     71.341042
+Name: 57, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #59/64
+Top_k                         256
+Detection Threshold          0.01
+Max Iters                   300.0
+Rotation method               CV2
+Trace depth                     8
+RMSE                   2897.87704
+Time                    71.415071
+Name: 58, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #60/64
+Top_k                         256
+Detection Threshold          0.01
+Max Iters                   300.0
+Rotation method               CV2
+Trace depth                     4
+RMSE                   2947.57459
+Time                    71.351015
+Name: 59, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #61/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                PIL
+Trace depth                      8
+RMSE                   2997.272004
+Time                     71.647695
+Name: 60, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #62/64
+Top_k                         256
+Detection Threshold          0.01
+Max Iters                   500.0
+Rotation method               PIL
+Trace depth                     4
+RMSE                   3046.96928
+Time                    71.657856
+Name: 61, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #63/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      8
+RMSE                   3096.666415
+Time                     71.542744
+Name: 62, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
+Средний FPS для этого набора: 1.00
+
+Набор параметров #64/64
+Top_k                          256
+Detection Threshold           0.01
+Max Iters                    500.0
+Rotation method                CV2
+Trace depth                      4
+RMSE                   3146.363408
+Time                     71.667474
+Name: 63, dtype: object
+Введите значения FPS через запятую (например: 5.3, 6.7, 7.1): 1
