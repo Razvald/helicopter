@@ -1,0 +1,2 @@
+Params 1,Params 2,Mean Distance VIO,Time 1,Time 2
+"{""top_k"": 512, ""detection_threshold"": 0.05, ""maxIters"": null, ""rotation"": ""PIL"", ""trace"": 4}","{""top_k"": 512, ""detection_threshold"": 0.05, ""maxIters"": 100, ""rotation"": ""PIL"", ""trace"": 4}",799.3438882567968,89.51683688163757,79.60586929321289

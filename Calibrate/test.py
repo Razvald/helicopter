@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Чтение данных из файла CSV
-df = pd.read_csv('vio_results_comparison_1000.csv')
+df = pd.read_csv('vio_results_updated.csv')
 
 # Приведение столбцов
 df['Max Iters'] = df['Max Iters'].fillna('None')  # Преобразование NaN в 'None'
@@ -42,18 +42,18 @@ plt.tight_layout()
 min_rmse = df['RMSE'].min()
 
 # Устанавливаем порог RMSE (минимальный RMSE + N метр)
-threshold_rmse = min_rmse + 100
+threshold_rmse = min_rmse + 300
 
 # Фильтрация конфигураций с RMSE ≤ минимальное значение RMSE + N метр
 df_acceptable = df[df['RMSE'] <= threshold_rmse]
 
 # Если есть конфигурации с допустимой точностью
 if not df_acceptable.empty:
-    # Выбираем конфигурацию с минимальным временем
-    best_acceptable = df_acceptable.loc[df_acceptable['Time'].idxmin()]
+    # Выбираем конфигурацию с максимальным FPS
+    best_acceptable = df_acceptable.loc[df_acceptable['Avg FPS'].idxmax()]
     print(f"Лучшая конфигурация с минимальным RMSE (добавлен {threshold_rmse - min_rmse} метр): \n{best_acceptable}")
 else:
-    # Если нет конфигураций с RMSE ≤ минимальное значение, то выбираем конфигурацию с минимальным временем
-    best_overall = df.loc[df['Time'].idxmin()]
-    print(f"Конфигурация с минимальным временем выполнения (при RMSE > {threshold_rmse}): \n{best_overall}")
+    # Если нет конфигураций с RMSE ≤ минимальное значение, то выбираем конфигурацию с максимальным FPS
+    best_overall = df.loc[df['Avg FPS'].idxmax()]
+    print(f"Конфигурация с максимальным FPS (при RMSE > {threshold_rmse}): \n{best_overall}")
 

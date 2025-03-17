@@ -1,3 +1,5 @@
+# calibrate_.py
+
 # %%
 import matplotlib.pyplot as plt
 import os
@@ -5,7 +7,6 @@ import json
 import cv2
 import numpy as np
 from time import time
-
 import vio_ort_org as vio_ort_original
 # %%
 # Инициализация глобальных параметров
@@ -102,24 +103,29 @@ opt_vio_transformed_lon, opt_vio_transformed_lat = transform_vio_coords(
 )
 
 # Обновляем результаты для построения графика
-results_original['lon_VIO'] = opt_vio_transformed_lon
-results_original['lat_VIO'] = opt_vio_transformed_lat
+results_original['lon_VIO_transformed'] = opt_vio_transformed_lon
+results_original['lat_VIO_transformed'] = opt_vio_transformed_lat
+
+errors_original = calculate_errors(results_original)
+print_errors(errors_original, "Original VIO")
+
 # %%
 # Функция для построения графика с GPS и VIO
 def plot_comparison(results_original):
     gps_lat = results_original['lat_GPS']
     gps_lon = results_original['lon_GPS']
-    gps_alt = results_original['alt_GPS']
+    
+    vio_lat_transf = results_original['lat_VIO_transformed']
+    vio_lon_transf = results_original['lon_VIO_transformed']
     
     vio_lat = results_original['lat_VIO']
     vio_lon = results_original['lon_VIO']
-    vio_alt = results_original['alt_VIO']
     
     plt.figure(figsize=(18, 6))
     
     # Построим график для широты
     plt.subplot(1, 3, 1)
-    plt.plot(vio_lon, vio_lat, label="Original VIO", color="blue", alpha=0.7)
+    plt.plot(vio_lat, vio_lon, label="Original VIO", color="blue", alpha=0.7)
     plt.plot(gps_lon, gps_lat, label="Original GPS", color="red", alpha=0.7)
     plt.xlabel('Longitude')
     plt.ylabel('Latitude')
@@ -128,8 +134,8 @@ def plot_comparison(results_original):
 
     # Построим график для высоты
     plt.subplot(1, 3, 2)
-    plt.plot(vio_lat, vio_alt, label="Original VIO", color="blue", alpha=0.7)
-    plt.plot(gps_lat, gps_alt, label="Original GPS", color="red", alpha=0.7)
+    plt.plot(vio_lon_transf, vio_lat_transf, label="Original VIO", color="blue", alpha=0.7)
+    plt.plot(gps_lon, gps_lat, label="Original GPS", color="red", alpha=0.7)
     plt.xlabel('Latitude')
     plt.ylabel('Altitude')
     plt.title('Altitude vs Latitude')
@@ -137,8 +143,8 @@ def plot_comparison(results_original):
 
     # Построим график для ошибок в координатах
     plt.subplot(1, 3, 3)
-    lat_error_orig = np.array(vio_lat) - np.array(gps_lat)
-    lon_error_orig = np.array(vio_lon) - np.array(gps_lon)
+    lat_error_orig = np.array(vio_lat_transf) - np.array(gps_lat)
+    lon_error_orig = np.array(vio_lon_transf) - np.array(gps_lon)
 
     # Используем scatter для отрисовки точек с градиентом
     points = plt.scatter(lat_error_orig, lon_error_orig, c=np.arange(len(lat_error_orig)), cmap='viridis', alpha=0.7)
