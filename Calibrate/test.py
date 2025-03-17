@@ -19,6 +19,8 @@ plt.legend(title='Top_k')
 plt.tight_layout()
 plt.savefig('Debugs/graph1_detection_threshold_vs_rmse.png')
 
+plt.clf()
+
 # График 2: Влияние Trace Depth
 sns.barplot(data=df, x='Trace depth', y='RMSE', hue='Rotation method', ci=None, palette='magma')
 plt.title('Влияние Trace Depth на RMSE (по методам поворота)')
@@ -27,6 +29,8 @@ plt.ylabel('RMSE')
 plt.legend(title='Rotation Method')
 plt.tight_layout()
 plt.savefig('Debugs/graph2_trace_depth_vs_rmse.png')
+
+plt.clf()
 
 # График 3: Влияние Max Iters
 sns.lineplot(data=df[df['Max Iters'] != 'None'], x='Max Iters', y='RMSE', hue='Detection Threshold', style='Top_k', markers=True, palette='coolwarm')
@@ -37,14 +41,14 @@ plt.legend(title='Detection Threshold / Top_k')
 plt.tight_layout()
 plt.savefig('Debugs/graph3_max_iters_vs_rmse.png')
 
-plt.show()
+#plt.show()
 
 
 # Поиск минимального значения RMSE
 min_rmse = df['RMSE'].min()
 
 # Устанавливаем порог RMSE (минимальный RMSE + N метр)
-threshold_rmse = min_rmse + 300
+threshold_rmse = min_rmse + 1000
 
 # Фильтрация конфигураций с RMSE ≤ минимальное значение RMSE + N метр
 df_acceptable = df[df['RMSE'] <= threshold_rmse]

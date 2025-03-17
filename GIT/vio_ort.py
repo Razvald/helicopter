@@ -29,7 +29,7 @@ CROP_CENTER = np.asarray([RAD / 2, RAD / 2])
 
 HOMO_THR = 2.0
 NUM_MATCH_THR = 8
-TRACE_DEPTH = 4
+TRACE_DEPTH = 8
 VEL_FIT_DEPTH = TRACE_DEPTH
 METERS_DEG = 111320
 
@@ -161,7 +161,7 @@ class VIO():
         good_prev = []
         good_next = []
         if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR)
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=100)
 
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
