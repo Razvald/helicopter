@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 
 import numpy as np
 import cv2
+from PIL import Image
 
 from modules.xfeat_ort import XFeat
 
@@ -47,7 +48,7 @@ def pt2h(abs_pressure, temperature, P0):
     return (1 - abs_pressure / P0) * 8.3144598 * (273.15 + temperature / 100) / 9.80665 / 0.0289644
 
 class VIO():
-    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=256, detection_threshold=0.01):
+    def __init__(self, lat0=0, lon0=0, alt0=0, top_k=512, detection_threshold=0.05):
         self.lat0 = lat0
         self.lon0 = lon0
         self._matcher = XFeat(top_k=top_k, detection_threshold=detection_threshold)
@@ -67,21 +68,21 @@ class VIO():
 
         roll, pitch = angles['roll'] / np.pi * 180, angles['pitch'] / np.pi * 180
 
-        dpp = (int(CENTER[0] + roll * 2.5), int(CENTER[1] + pitch * 2.5))
+        dpp = (int(CENTER[0] + roll * 2.5),
+                 int(CENTER[1] + pitch * 2.5)
+        )
 
-        M = cv2.getRotationMatrix2D(dpp, angles['yaw'] / np.pi * 180, 1)
-        rotated = cv2.warpAffine(frame, M, (frame.shape[1], frame.shape[0]))
+        rotated = Image.fromarray(frame).rotate(angles['yaw']/np.pi*180, center=dpp)
         rotated = np.asarray(rotated)
 
         map_x, map_y = fisheye2rectilinear(FOCAL, dpp, RAD, RAD)
         crop = cv2.remap(rotated, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
-        trace_pt = dict(
-            crop=crop,
-            out = self.detect_and_compute(crop),
-            angles=angles,
-            height=height,
-        )
+        trace_pt = dict(crop=crop,
+                        out= self.detect_and_compute(crop),
+                        angles=angles,
+                        height=height,
+                       )
 
         if len(self.trace) > TRACE_DEPTH:
             self.trace = self.trace[1:]
@@ -114,24 +115,26 @@ class VIO():
         alt = he[-1]
         GPS_week, GPS_ms = calc_GPS_week_time()
 
-        return dict(
-            timestamp=float(ts[-1]),
-            to_north=float(tn[-1]),
-            to_east=float(te[-1]),
-            lat=float(lat),
-            lon=float(lon),
-            alt=float(alt),
-            veln=float(vn),
-            vele=float(ve),
-            veld=float(vd),
-            GPS_week=int(GPS_week),
-            GPS_ms=int(GPS_ms)
-        )
+        return dict(timestamp=float(ts[-1]),
+                    to_north=float(tn[-1]),
+                    to_east=float(te[-1]),
+                    lat=float(lat),
+                    lon=float(lon),
+                    alt=float(alt),
+                    veln=float(vn),
+                    vele=float(ve),
+                    veld=float(vd),
+                    GPS_week=int(GPS_week),
+                    GPS_ms=int(GPS_ms)
+                   )
 
     def calc_pos(self, next_pt):
         poses = []
         for prev_pt in self.trace:
-            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'], next_pt['out'],)
+            match_prev, match_next, HoM = self.match_points_hom(prev_pt['out'],
+                                                                next_pt['out'],
+                                                                )
+
             if len(match_prev) <= NUM_MATCH_THR:
                 continue
 
@@ -139,7 +142,10 @@ class VIO():
             pix_shift = CROP_CENTER - center_proj
             pix_shift[0], pix_shift[1] = -pix_shift[1], pix_shift[0]
             height = np.mean([prev_pt['height'], next_pt['height']])
+            ############################################
+            ##### умножать
             metric_shift = pix_shift / FOCAL * height
+            #########################################
             local_pos = prev_pt['local_posm'] + metric_shift
             poses.append(local_pos)
 
@@ -155,7 +161,7 @@ class VIO():
         good_prev = []
         good_next = []
         if len(mkpts_0)>=NUM_MATCH_THR:
-            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=500)
+            HoM, mask = cv2.findHomography(mkpts_0, mkpts_1, cv2.RANSAC, HOMO_THR, maxIters=100)
 
             mask = mask.ravel()
             good_prev = np.asarray([pt for ii, pt in enumerate(mkpts_0) if mask[ii]])
@@ -174,7 +180,11 @@ class VIO():
         if self.P0 == None:
             self.P0 = msg['SCALED_PRESSURE']['press_abs']
         if self.P0 != None:
-            self.height = pt2h(msg['SCALED_PRESSURE']['press_abs'], msg['SCALED_PRESSURE']['temperature'], self.P0)
+            self.height = pt2h(
+                msg['SCALED_PRESSURE']['press_abs'],
+                msg['SCALED_PRESSURE']['temperature'],
+                self.P0
+            )
         pres =  msg['SCALED_PRESSURE']['press_abs']
         temp = msg['SCALED_PRESSURE']['temperature']
         #print(f'height: {height}, {pres}, {temp}, {self.P0}', end='\t\r')
