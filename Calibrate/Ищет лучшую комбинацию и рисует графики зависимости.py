@@ -48,7 +48,7 @@ plt.savefig('Debugs/graph3_max_iters_vs_rmse.png')
 min_rmse = df['RMSE'].min()
 
 # Устанавливаем порог RMSE (минимальный RMSE + N метр)
-threshold_rmse = min_rmse + 1000
+threshold_rmse = min_rmse + 50
 
 # Фильтрация конфигураций с RMSE ≤ минимальное значение RMSE + N метр
 df_acceptable = df[df['RMSE'] <= threshold_rmse]
