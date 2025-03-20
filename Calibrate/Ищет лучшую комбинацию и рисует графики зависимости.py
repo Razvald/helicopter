@@ -56,7 +56,7 @@ df_acceptable = df[df['RMSE'] <= threshold_rmse]
 # Если есть конфигурации с допустимой точностью
 if not df_acceptable.empty:
     # Выбираем конфигурацию с максимальным FPS
-    best_acceptable = df_acceptable.loc[df_acceptable['Avg FPS'].idxmax()]
+    best_acceptable = df_acceptable.loc[df_acceptable['Avg FPS'].idxmax()] # type: ignore
     print(f"Лучшая конфигурация с минимальным RMSE (добавлен {threshold_rmse - min_rmse} метр): \n{best_acceptable}")
 else:
     # Если нет конфигураций с RMSE ≤ минимальное значение, то выбираем конфигурацию с максимальным FPS
